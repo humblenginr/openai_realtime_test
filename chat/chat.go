@@ -15,11 +15,39 @@ type ChatGPTClient struct {
 	ResponseAudioDoneCh  chan bool
 }
 
+func NewAzureClient(respAudioDeltaCh chan string, respAudioDoneCh chan bool) (*ChatGPTClient, error) {
+	url := "wss://pixa-realtime.openai.azure.com/openai/realtime?api-version=2024-10-01-preview&deployment=gpt-4o-realtime-preview"
+	header := http.Header{}
+	header.Set("api-key", os.Getenv("AZURE_API_KEY"))
+	conn, _, err := websocket.DefaultDialer.Dial(url, header)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to ChatGPT WebSocket server: %v", err)
+	}
+
+	fmt.Println("Connected to Azure OpenAI server.")
+
+	// Send session update command
+	sessionEvent := map[string]interface{}{
+		"type": "session.update",
+		"session": map[string]interface{}{
+			"modalities":         []string{"audio", "text"},
+			"input_audio_format": "pcm16",
+		},
+	}
+
+	if err := conn.WriteJSON(sessionEvent); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to send session event: %v", err)
+	}
+
+	return &ChatGPTClient{Conn: conn, ResponseAudioDeltaCh: respAudioDeltaCh, ResponseAudioDoneCh: respAudioDoneCh}, nil
+}
+
 func NewChatGPTClient(respAudioDeltaCh chan string, respAudioDoneCh chan bool) (*ChatGPTClient, error) {
 	url := "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
+	//url := "wss://pixa-realtime.openai.azure.com/openai/realtime?api-version=2024-08-01-preview&deployment=gpt-4o-realtime-preview&api-key=e9bbb248e632416f85c5de0b2e446ea1"
 	headers := http.Header{
 		"Authorization": {"Bearer " + os.Getenv("OPENAI_API_KEY")},
-		"OpenAI-Beta":   {"realtime=v1"},
 	}
 
 	// Connect to the ChatGPT WebSocket server

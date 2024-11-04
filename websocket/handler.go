@@ -32,14 +32,13 @@ func HandleConnections(w http.ResponseWriter, r *http.Request, handleRecordedInp
 	go wc.handleResponseAudio(respAudioDeltaCh, respAudioDoneCh)
 
 	// Establish a ChatGPT client for this session
-	chatClient, err := chat.NewChatGPTClient(respAudioDeltaCh, respAudioDoneCh)
+	chatClient, err := chat.NewAzureClient(respAudioDeltaCh, respAudioDoneCh)
 	if err != nil {
 		log.Printf("Failed to establish ChatGPT connection: %v", err)
 		return
 	}
 	defer chatClient.Conn.Close()
 
-	fmt.Println("Client connected")
 	go chatClient.WatchServerEvents()
 
 	for {
