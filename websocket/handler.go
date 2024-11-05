@@ -10,6 +10,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Message defines the structure of incoming messages
+type Message struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}
+
 // Upgrader for WebSocket connection, allowing connections from any origin
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -20,29 +26,23 @@ var upgrader = websocket.Upgrader{
 // HandleConnections handles WebSocket connections and message routing
 func HandleConnections(w http.ResponseWriter, r *http.Request, handleRecordedInput func(*chat.ChatGPTClient, string) error) {
 	// Upgrade the HTTP connection to a WebSocket connection
-	conn, err := upgrader.Upgrade(w, r, nil)
+	clientConnection, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Failed to upgrade to WebSocket: %v", err)
 		return
 	}
-	defer conn.Close()
-	wc := WebsocketClient{c: conn}
-	respAudioDeltaCh := make(chan string)
-	respAudioDoneCh := make(chan bool)
-	go wc.handleResponseAudio(respAudioDeltaCh, respAudioDoneCh)
+	defer clientConnection.Close()
 
 	// Establish a ChatGPT client for this session
-	chatClient, err := chat.NewAzureClient(respAudioDeltaCh, respAudioDoneCh)
+	chatClient, err := chat.NewAzureClient()
 	if err != nil {
 		log.Printf("Failed to establish ChatGPT connection: %v", err)
 		return
 	}
 	defer chatClient.Conn.Close()
-
-	go chatClient.WatchServerEvents()
-
+	go chatClient.WatchServerEvents(clientConnection)
 	for {
-		_, message, err := conn.ReadMessage()
+		_, message, err := clientConnection.ReadMessage()
 		if err != nil {
 			log.Printf("Error reading message: %v", err)
 			break
@@ -54,12 +54,18 @@ func HandleConnections(w http.ResponseWriter, r *http.Request, handleRecordedInp
 			continue
 		}
 
-		if msg.Type == "audio" {
-			dataBytes, _ := msg.Data.(string)
-			err := handleRecordedInput(chatClient, dataBytes)
+		if msg.Type == "input_audio_buffer.append" {
+			data, _ := msg.Data.(string)
+			// TODO: we probably would have to do the processing here
+			err := chatClient.AppendToAudioBuffer(data)
 			if err != nil {
-				log.Printf("Error handling recorded input: %v", err)
-				continue
+				fmt.Printf("failed to send append to audio buffer event: %v\n", err)
+			}
+
+		} else if msg.Type == "input_audio_buffer.clear" {
+			err := chatClient.ClearAudioBuffer()
+			if err != nil {
+				fmt.Printf("failed to send append to audio buffer event: %v\n", err)
 			}
 		} else {
 			log.Printf("Unhandled message type: %s", msg.Type)

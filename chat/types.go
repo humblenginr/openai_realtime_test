@@ -10,6 +10,7 @@ const (
 	ResponseCreatedEventType          = "response.created"
 	ConverstationItemCreateEventType  = "conversation.item.create"
 	ConverstationItemCreatedEventType = "conversation.item.created"
+	InputAudioBufferAppendEventType   = "input_audio_buffer.append"
 )
 
 type EventBase struct {

@@ -10,12 +10,10 @@ import (
 )
 
 type ChatGPTClient struct {
-	Conn                 *websocket.Conn
-	ResponseAudioDeltaCh chan string
-	ResponseAudioDoneCh  chan bool
+	Conn *websocket.Conn
 }
 
-func NewAzureClient(respAudioDeltaCh chan string, respAudioDoneCh chan bool) (*ChatGPTClient, error) {
+func NewAzureClient() (*ChatGPTClient, error) {
 	url := "wss://pixa-realtime.openai.azure.com/openai/realtime?api-version=2024-10-01-preview&deployment=gpt-4o-realtime-preview"
 	header := http.Header{}
 	header.Set("api-key", os.Getenv("AZURE_API_KEY"))
@@ -32,6 +30,13 @@ func NewAzureClient(respAudioDeltaCh chan string, respAudioDoneCh chan bool) (*C
 		"session": map[string]interface{}{
 			"modalities":         []string{"audio", "text"},
 			"input_audio_format": "pcm16",
+			// turn should be detected automatically
+			"turn_detection": map[string]interface{}{
+				"type":                "server_vad",
+				"threshold":           0.5,
+				"prefix_padding_ms":   300,
+				"silence_duration_ms": 500,
+			},
 		},
 	}
 
@@ -40,10 +45,10 @@ func NewAzureClient(respAudioDeltaCh chan string, respAudioDoneCh chan bool) (*C
 		return nil, fmt.Errorf("failed to send session event: %v", err)
 	}
 
-	return &ChatGPTClient{Conn: conn, ResponseAudioDeltaCh: respAudioDeltaCh, ResponseAudioDoneCh: respAudioDoneCh}, nil
+	return &ChatGPTClient{Conn: conn}, nil
 }
 
-func NewChatGPTClient(respAudioDeltaCh chan string, respAudioDoneCh chan bool) (*ChatGPTClient, error) {
+func NewChatGPTClient() (*ChatGPTClient, error) {
 	url := "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
 	//url := "wss://pixa-realtime.openai.azure.com/openai/realtime?api-version=2024-08-01-preview&deployment=gpt-4o-realtime-preview&api-key=e9bbb248e632416f85c5de0b2e446ea1"
 	headers := http.Header{
@@ -62,6 +67,10 @@ func NewChatGPTClient(respAudioDeltaCh chan string, respAudioDoneCh chan bool) (
 		"type": "session.update",
 		"session": map[string]interface{}{
 			"modalities": []string{"audio", "text"},
+			"turn_detection": map[string]interface{}{
+				"silence_duration_ms": 750,
+				"threshold":           0.3,
+			},
 		},
 	}
 	if err := conn.WriteJSON(sessionEvent); err != nil {
@@ -69,12 +78,19 @@ func NewChatGPTClient(respAudioDeltaCh chan string, respAudioDoneCh chan bool) (
 		return nil, fmt.Errorf("failed to send session event: %v", err)
 	}
 
-	return &ChatGPTClient{Conn: conn, ResponseAudioDeltaCh: respAudioDeltaCh, ResponseAudioDoneCh: respAudioDoneCh}, nil
+	return &ChatGPTClient{Conn: conn}, nil
+}
+
+// Message defines the structure of messages to be sent to the client
+type Message struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
 }
 
 // watch for the events emitted by the ChatGPT Realtime API server
 // API Reference: https://platform.openai.com/docs/api-reference/realtime-server-events/
-func (c *ChatGPTClient) WatchServerEvents() error {
+// eventsRelayCh is used to relay events to the client.
+func (c *ChatGPTClient) WatchServerEvents(clientWs *websocket.Conn) error {
 	for {
 		// Listen for ChatGPT response
 		_, msg, err := c.Conn.ReadMessage()
@@ -94,18 +110,86 @@ func (c *ChatGPTClient) WatchServerEvents() error {
 			}
 			// handle error
 			fmt.Println(errorE.Error.Message)
-		case SessionCreatedEventType:
-			fmt.Println("Received a session created message")
 		case "response.audio.delta":
-			fmt.Println("Received a response audio")
 			var resp map[string]interface{}
 			if err := json.Unmarshal(msg, &resp); err != nil {
-				return fmt.Errorf("failed to parse message: %v", err)
+				fmt.Printf("failed to parse message: %v\n", err)
 			}
 			delta := resp["delta"].(string)
-			c.ResponseAudioDeltaCh <- delta
+			msg := Message{Type: string(parsedMsg.Type), Data: delta}
+			if clientWs == nil {
+				fmt.Println("Websocket connection is not present")
+
+			}
+			err = clientWs.WriteJSON(msg)
+			if err != nil {
+				fmt.Println(err)
+			}
 		case "response.audio.done":
-			c.ResponseAudioDoneCh <- true
+			msg := Message{Type: string(parsedMsg.Type), Data: ""}
+			if clientWs == nil {
+				return fmt.Errorf("Websocket connection is not present")
+
+			}
+			err = clientWs.WriteJSON(msg)
+			if err != nil {
+				fmt.Println(err)
+			}
+		case "response.audio_transcript.delta":
+			var resp map[string]interface{}
+			if err := json.Unmarshal(msg, &resp); err != nil {
+				fmt.Printf("failed to parse message: %v\n", err)
+			}
+			delta := resp["delta"].(string)
+			msg := Message{Type: string(parsedMsg.Type), Data: delta}
+			if clientWs == nil {
+				fmt.Println("Websocket connection is not present")
+
+			}
+			err = clientWs.WriteJSON(msg)
+			if err != nil {
+				fmt.Println(err)
+			}
+		case "response.audio_transcript.done":
+			msg := Message{Type: string(parsedMsg.Type), Data: ""}
+			if clientWs == nil {
+				return fmt.Errorf("Websocket connection is not present")
+
+			}
+			err = clientWs.WriteJSON(msg)
+			if err != nil {
+				fmt.Println(err)
+			}
+		case "input_audio_buffer.speech_started":
+			msg := Message{Type: string(parsedMsg.Type), Data: ""}
+			if clientWs == nil {
+				return fmt.Errorf("Websocket connection is not present")
+
+			}
+			err = clientWs.WriteJSON(msg)
+			if err != nil {
+				fmt.Println(err)
+			}
+		case "input_audio_buffer.speech_stopped":
+			msg := Message{Type: string(parsedMsg.Type), Data: ""}
+			if clientWs == nil {
+				return fmt.Errorf("Websocket connection is not present")
+
+			}
+			err = clientWs.WriteJSON(msg)
+			if err != nil {
+				fmt.Println(err)
+			}
+		case "input_audio_buffer.cleared":
+			msg := Message{Type: string(parsedMsg.Type), Data: ""}
+			if clientWs == nil {
+				return fmt.Errorf("Websocket connection is not present")
+
+			}
+			err = clientWs.WriteJSON(msg)
+			if err != nil {
+				fmt.Println(err)
+			}
 		default:
 			fmt.Println(string(msg))
 		}
@@ -113,17 +197,7 @@ func (c *ChatGPTClient) WatchServerEvents() error {
 	}
 }
 
-func (c *ChatGPTClient) SendCreateResponseEvent() error {
-	createResponseEvent := map[string]interface{}{
-		"type": ResponseCreateEventType,
-	}
-	// Send the conversation event
-	if err := c.Conn.WriteJSON(createResponseEvent); err != nil {
-		return fmt.Errorf("failed to send conversation event: %v", err)
-	}
-	return nil
-}
-
+// We will not receive any confirmation message from the server
 func (c *ChatGPTClient) AppendToAudioBuffer(audio string) error {
 	e := map[string]interface{}{"type": "input_audio_buffer.append", "audio": audio}
 
@@ -134,31 +208,11 @@ func (c *ChatGPTClient) AppendToAudioBuffer(audio string) error {
 	return nil
 }
 
-func (c *ChatGPTClient) CommitAudioBuffer() error {
-	e := map[string]interface{}{"type": "input_audio_buffer.commit"}
+func (c *ChatGPTClient) ClearAudioBuffer() error {
+	e := map[string]interface{}{"type": "input_audio_buffer.clear"}
 
 	if err := c.Conn.WriteJSON(e); err != nil {
-		return fmt.Errorf("failed to send input audio buffer commit event: %v", err)
-	}
-	return nil
-}
-
-func (c *ChatGPTClient) SendConversationItemCreateEvent(audio string) error {
-	conversationEvent := ConversationEvent{}
-	conversationEvent.Type = ConverstationItemCreateEventType
-	item := MessageItem{}
-	item.Type = "message"
-	item.Role = "user"
-	content := ContentItem{}
-	content.Type = "input_audio"
-	content.Audio = audio
-	item.Content = make([]ContentItem, 0)
-	item.Content = append(item.Content, content)
-	conversationEvent.Item = item
-
-	// Send the conversation event
-	if err := c.Conn.WriteJSON(conversationEvent); err != nil {
-		return fmt.Errorf("failed to send conversation event: %v", err)
+		return fmt.Errorf("failed to send input audio append event: %v", err)
 	}
 
 	return nil

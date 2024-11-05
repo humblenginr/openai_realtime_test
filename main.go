@@ -10,14 +10,6 @@ import (
 
 func handleRecordedInput(client *chat.ChatGPTClient, input string) error {
 	fmt.Printf("Received recording\n")
-	err := client.SendConversationItemCreateEvent(input)
-	if err != nil {
-		fmt.Printf("failed to send add conversation item event: %v\n", err)
-	}
-	err = client.SendCreateResponseEvent()
-	if err != nil {
-		fmt.Printf("failed to send create response event event: %v\n", err)
-	}
 
 	return nil
 }
