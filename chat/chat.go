@@ -241,6 +241,7 @@ func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *
 		return fmt.Errorf("server error: %s", errorEvent.Error.Message)
 
 	case "response.audio.delta":
+		c.logger.Info("Received response.audio.delta")
 		var data string
 		var resp map[string]interface{}
 		if err := json.Unmarshal(msg, &resp); err != nil {

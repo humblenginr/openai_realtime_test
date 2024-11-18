@@ -153,7 +153,7 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient *chat
 				}
 				return err
 			}
-			if err := h.handleMessage(ctx, message, chatClient, typ); err != nil {
+			if err := h.handleMessage(message, chatClient, typ); err != nil {
 				h.logger.Error("Message handling error", "error", err)
 				continue
 			}
@@ -162,7 +162,7 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient *chat
 }
 
 // handleMessage processes incoming WebSocket messages
-func (h *Handler) handleMessage(ctx context.Context, message []byte, chatClient *chat.ChatGPTClient, msgType int) error {
+func (h *Handler) handleMessage(message []byte, chatClient *chat.ChatGPTClient, msgType int) error {
 	// the hardware device will only send base64encoded data for now
 	// 1 means the message type is TextMessage
 	if msgType == 1 {
@@ -184,11 +184,13 @@ func (h *Handler) handleAudioAppend(data interface{}, chatClient *chat.ChatGPTCl
 			h.logger.Error("Failed to process audio data", "error", err)
 			return
 		}
+		h.logger.Info("Successfully processed audio data")
 		err = chatClient.AppendToAudioBuffer(processed)
 		if err != nil {
 			h.logger.Error("Failed to append audio to input buffer", "error", err)
 			return
 		}
+		h.logger.Info("Successfully appended audio data to input buffer")
 	}()
 	return nil
 
