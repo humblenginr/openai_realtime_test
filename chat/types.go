@@ -10,15 +10,27 @@ const (
 	ResponseCreatedEventType         EventType = "response.created"
 	ConversationItemCreateEventType  EventType = "conversation.item.create"
 	ConversationItemCreatedEventType EventType = "conversation.item.created"
-	InputAudioBufferAppendEventType  EventType = "input_audio_buffer.append"
-	ResponseAudioDeltaEventType      EventType = "response.audio.delta"
-	ResponseAudioDoneEventType       EventType = "response.audio.done"
-	AudioTranscriptDeltaEventType    EventType = "response.audio_transcript.delta"
-	AudioTranscriptDoneEventType     EventType = "response.audio_transcript.done"
-	SpeechStartedEventType           EventType = "input_audio_buffer.speech_started"
-	SpeechStoppedEventType           EventType = "input_audio_buffer.speech_stopped"
-	AudioBufferClearedEventType      EventType = "input_audio_buffer.cleared"
+
+	InputAudioBufferAppendEventType EventType = "input_audio_buffer.append"
+
+	ResponseAudioDeltaEventType EventType = "response.audio.delta"
+	ResponseAudioDoneEventType  EventType = "response.audio.done"
+
+	AudioTranscriptDeltaEventType EventType = "response.audio_transcript.delta"
+	AudioTranscriptDoneEventType  EventType = "response.audio_transcript.done"
+
+	// this
+	SpeechStartedEventType      EventType = "input_audio_buffer.speech_started"
+	SpeechStoppedEventType      EventType = "input_audio_buffer.speech_stopped"
+	AudioBufferClearedEventType EventType = "input_audio_buffer.cleared"
 )
+
+/*
+	{
+		"type": "input_audio_buffer.append",
+		"data" : "base64encoded audio chunks"
+	}
+*/
 
 // Message represents the structure of messages sent to the client
 type Message struct {

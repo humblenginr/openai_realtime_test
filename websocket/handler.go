@@ -3,7 +3,6 @@ package websocket
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -167,15 +166,14 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient *chat
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			_, message, err := client.conn.ReadMessage()
+			typ, message, err := client.conn.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					h.logger.Error("WebSocket read error", "error", err)
 				}
 				return err
 			}
-
-			if err := h.handleMessage(ctx, message, chatClient); err != nil {
+			if err := h.handleMessage(ctx, message, chatClient, typ); err != nil {
 				h.logger.Error("Message handling error", "error", err)
 				continue
 			}
@@ -184,21 +182,13 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient *chat
 }
 
 // handleMessage processes incoming WebSocket messages
-func (h *Handler) handleMessage(ctx context.Context, message []byte, chatClient *chat.ChatGPTClient) error {
-	var msg Message
-	if err := json.Unmarshal(message, &msg); err != nil {
-		return fmt.Errorf("invalid message format: %w", err)
+func (h *Handler) handleMessage(ctx context.Context, message []byte, chatClient *chat.ChatGPTClient, msgType int) error {
+	// the hardware device will only send base64encoded data for now
+	// 1 means the message type is TextMessage
+	if msgType == 1 {
+		return h.handleAudioAppend(string(message), chatClient)
 	}
-
-	switch msg.Type {
-	case "input_audio_buffer.append":
-		return h.handleAudioAppend(msg.Data, chatClient)
-	case "input_audio_buffer.clear":
-		return chatClient.ClearAudioBuffer()
-	default:
-		h.logger.Warn("Unhandled message type", "type", msg.Type)
-		return nil
-	}
+	return fmt.Errorf("Message type: %d is not handled", msgType)
 }
 
 // handleAudioAppend processes and sends audio data to the chat client

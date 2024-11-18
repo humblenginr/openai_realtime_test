@@ -240,37 +240,20 @@ func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *
 			"message", errorEvent.Error.Message)
 		return fmt.Errorf("server error: %s", errorEvent.Error.Message)
 
-	case "response.audio.delta",
-		"response.audio.done",
-		"response.audio_transcript.delta",
-		"response.audio_transcript.done",
-		"input_audio_buffer.speech_started",
-		"input_audio_buffer.speech_stopped",
-		"input_audio_buffer.cleared":
-		return c.forwardEventToClient(eventType, msg, clientWs)
-
-	default:
-		c.logger.Debug("Received unhandled event type", "type", eventType)
-		return nil
-	}
-}
-
-func (c *ChatGPTClient) forwardEventToClient(eventType EventType, msg []byte, clientWs *websocket.Conn) error {
-	var data string
-	if eventType == "response.audio.delta" || eventType == "response.audio_transcript.delta" {
+	case "response.audio.delta":
+		var data string
 		var resp map[string]interface{}
 		if err := json.Unmarshal(msg, &resp); err != nil {
 			return fmt.Errorf("failed to parse delta event: %v", err)
 		}
 		data = resp["delta"].(string)
-	}
+		// 1 here means that the message type is "Text Message"
+		return clientWs.WriteMessage(1, []byte(data))
 
-	message := Message{
-		Type: string(eventType),
-		Data: data,
+	default:
+		c.logger.Debug("Received unhandled event type", "type", eventType)
+		return nil
 	}
-
-	return clientWs.WriteJSON(message)
 }
 
 // AppendToAudioBuffer adds audio data to the buffer
