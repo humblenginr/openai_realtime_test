@@ -8,23 +8,13 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"pixa-demo/audio"
 	"pixa-demo/chat"
 )
 
-const (
-	// Time allowed to write a message to the peer
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer
-	pongWait = 60 * time.Second
-
-	// Maximum message size allowed from peer
-	maxMessageSize = 1024 * 1024 // 1MB
-)
+const ()
 
 // Handler manages WebSocket connections and message routing
 type Handler struct {
@@ -41,14 +31,8 @@ type Message struct {
 // NewHandler creates a new WebSocket handler with the provided options
 func NewHandler(opts ...Option) *Handler {
 	h := &Handler{
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin: func(r *http.Request) bool {
-				return true
-			},
-		},
-		logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
+		upgrader: websocket.Upgrader{},
+		logger:   slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 	}
 
 	// Apply options
@@ -118,14 +102,6 @@ func (c *Client) Close() {
 
 // handleClient manages the client connection and message routing
 func (h *Handler) handleClient(ctx context.Context, client *Client) error {
-	// Configure connection
-	client.conn.SetReadLimit(maxMessageSize)
-	client.conn.SetReadDeadline(time.Now().Add(pongWait))
-	client.conn.SetPongHandler(func(string) error {
-		client.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
-
 	// Create chat client
 	chatClient, err := chat.NewAzureClient(ctx, chat.WithLogger(h.logger))
 	if err != nil {
