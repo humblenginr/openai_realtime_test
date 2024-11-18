@@ -3,70 +3,83 @@ package chat
 type EventType string
 
 const (
-	SessionUpdateEventType            = "session.update"
-	SessionCreatedEventType           = "session.created"
-	ErrorEventType                    = "error"
-	ResponseCreateEventType           = "response.create"
-	ResponseCreatedEventType          = "response.created"
-	ConverstationItemCreateEventType  = "conversation.item.create"
-	ConverstationItemCreatedEventType = "conversation.item.created"
-	InputAudioBufferAppendEventType   = "input_audio_buffer.append"
+	SessionUpdateEventType           EventType = "session.update"
+	SessionCreatedEventType          EventType = "session.created"
+	ErrorEventType                   EventType = "error"
+	ResponseCreateEventType          EventType = "response.create"
+	ResponseCreatedEventType         EventType = "response.created"
+	ConversationItemCreateEventType  EventType = "conversation.item.create"
+	ConversationItemCreatedEventType EventType = "conversation.item.created"
+	InputAudioBufferAppendEventType  EventType = "input_audio_buffer.append"
+	ResponseAudioDeltaEventType      EventType = "response.audio.delta"
+	ResponseAudioDoneEventType       EventType = "response.audio.done"
+	AudioTranscriptDeltaEventType    EventType = "response.audio_transcript.delta"
+	AudioTranscriptDoneEventType     EventType = "response.audio_transcript.done"
+	SpeechStartedEventType           EventType = "input_audio_buffer.speech_started"
+	SpeechStoppedEventType           EventType = "input_audio_buffer.speech_stopped"
+	AudioBufferClearedEventType      EventType = "input_audio_buffer.cleared"
 )
 
+// Message represents the structure of messages sent to the client
+type Message struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}
+
+// EventBase represents the base structure for all events
 type EventBase struct {
-	EventID *string   `json:"event_id"`
+	EventID *string   `json:"event_id,omitempty"`
 	Type    EventType `json:"type"`
 }
 
-// ErrorEvent represents the structure for the error event
+// ErrorEvent represents an error from the server
 type ErrorEvent struct {
 	EventBase
 	Error ErrorDetail `json:"error"`
 }
 
-// ErrorDetail represents the details of the error
+// ErrorDetail contains detailed error information
 type ErrorDetail struct {
 	Type    string  `json:"type"`
 	Code    string  `json:"code"`
 	Message string  `json:"message"`
-	Param   *string `json:"param"` // Param can be null, so it's a pointer
+	Param   *string `json:"param,omitempty"`
 	EventID string  `json:"event_id"`
 }
 
-// SessionUpdateEvent represents the structure for the session.update event
+// SessionUpdateEvent represents a session update
 type SessionUpdateEvent struct {
-	EventID string      `json:"event_id"`
-	Type    string      `json:"type"`
+	EventBase
 	Session SessionData `json:"session"`
 }
 
-// SessionCreatedEvent represents the structure for the session.created event
+// SessionCreatedEvent represents a new session creation
 type SessionCreatedEvent struct {
 	EventBase
 	Session SessionData `json:"session"`
 }
 
-// SessionData represents session-specific data
+// SessionData contains session configuration
 type SessionData struct {
 	Modalities              []string                `json:"modalities"`
-	Instructions            string                  `json:"instructions"`
-	Voice                   string                  `json:"voice"`
-	InputAudioFormat        string                  `json:"input_audio_format"`
-	OutputAudioFormat       string                  `json:"output_audio_format"`
-	InputAudioTranscription InputAudioTranscription `json:"input_audio_transcription"`
+	Instructions            string                  `json:"instructions,omitempty"`
+	Voice                   string                  `json:"voice,omitempty"`
+	InputAudioFormat        string                  `json:"input_audio_format,omitempty"`
+	OutputAudioFormat       string                  `json:"output_audio_format,omitempty"`
+	InputAudioTranscription InputAudioTranscription `json:"input_audio_transcription,omitempty"`
 	TurnDetection           TurnDetection           `json:"turn_detection"`
-	Tools                   []Tool                  `json:"tools"`
-	ToolChoice              string                  `json:"tool_choice"`
-	Temperature             float64                 `json:"temperature"`
-	MaxResponseOutputTokens string                  `json:"max_response_output_tokens"`
+	Tools                   []Tool                  `json:"tools,omitempty"`
+	ToolChoice              string                  `json:"tool_choice,omitempty"`
+	Temperature             float64                 `json:"temperature,omitempty"`
+	MaxResponseOutputTokens string                  `json:"max_response_output_tokens,omitempty"`
 }
 
-// InputAudioTranscription represents the transcription model details
+// InputAudioTranscription represents audio transcription settings
 type InputAudioTranscription struct {
 	Model string `json:"model"`
 }
 
-// TurnDetection represents the turn detection configuration
+// TurnDetection contains voice activity detection settings
 type TurnDetection struct {
 	Type              string  `json:"type"`
 	Threshold         float64 `json:"threshold"`
@@ -74,7 +87,7 @@ type TurnDetection struct {
 	SilenceDurationMs int     `json:"silence_duration_ms"`
 }
 
-// Tool represents a tool that can be used in the session
+// Tool represents an available tool in the session
 type Tool struct {
 	Type        string     `json:"type"`
 	Name        string     `json:"name"`
@@ -82,48 +95,28 @@ type Tool struct {
 	Parameters  ToolParams `json:"parameters"`
 }
 
-// ToolParams represents the parameters for a tool
+// ToolParams defines the parameters for a tool
 type ToolParams struct {
 	Type       string           `json:"type"`
 	Properties map[string]Param `json:"properties"`
 	Required   []string         `json:"required"`
 }
 
-// Param represents a parameter with its type
+// Param represents a single parameter
 type Param struct {
 	Type string `json:"type"`
 }
 
+// ResponseEvent represents a response from the server
 type ResponseEvent struct {
 	EventBase
 	Response Response `json:"response"`
 }
 
+// Response contains the response configuration
 type Response struct {
 	Modalities        []string `json:"modalities"`
-	Instructions      string   `json:"instructions"`
-	Voice             string   `json:"voice"`
-	OutputAudioFormat string   `json:"output_audio_format"`
-	Tools             []Tool   `json:"tools"`
-	ToolChoice        string   `json:"tool_choice"`
-	Temperature       float64  `json:"temperature"`
-	MaxOutputTokens   int      `json:"max_output_tokens"`
-}
-
-type ConversationEvent struct {
-	EventBase
-	PreviousItemID *string     `json:"previous_item_id"` // Use *string to allow null values
-	Item           MessageItem `json:"item"`
-}
-
-type MessageItem struct {
-	ID      *string       `json:"id"`
-	Type    string        `json:"type"`
-	Role    string        `json:"role"`
-	Content []ContentItem `json:"content"`
-}
-
-type ContentItem struct {
-	Type  string `json:"type"`
-	Audio string `json:"audio"`
+	Instructions      string   `json:"instructions,omitempty"`
+	Voice             string   `json:"voice,omitempty"`
+	OutputAudioFormat string
 }

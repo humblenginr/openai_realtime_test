@@ -1,102 +1,239 @@
+// websocket/handler.go
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
-	"pixa-demo/audio"
-	"pixa-demo/chat"
+	"os"
+	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
+	"pixa-demo/audio"
+	"pixa-demo/chat"
 )
 
-// Message defines the structure of incoming messages
+const (
+	// Time allowed to write a message to the peer
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer
+	pongWait = 60 * time.Second
+
+	// Maximum message size allowed from peer
+	maxMessageSize = 1024 * 1024 // 1MB
+)
+
+// Handler manages WebSocket connections and message routing
+type Handler struct {
+	upgrader websocket.Upgrader
+	logger   *slog.Logger
+}
+
+// Message defines the structure of WebSocket messages
 type Message struct {
 	Type string      `json:"type"`
 	Data interface{} `json:"data"`
 }
 
-// Upgrader for WebSocket connection, allowing connections from any origin
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+// NewHandler creates a new WebSocket handler with the provided options
+func NewHandler(opts ...Option) *Handler {
+	h := &Handler{
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+			CheckOrigin: func(r *http.Request) bool {
+				return true
+			},
+		},
+		logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(h)
+	}
+
+	return h
 }
 
+// Option allows for customizing the Handler
+type Option func(*Handler)
+
+// WithLogger sets a custom logger
+func WithLogger(logger *slog.Logger) Option {
+	return func(h *Handler) {
+		h.logger = logger
+	}
+}
+
+// WithUpgrader sets a custom WebSocket upgrader
+func WithUpgrader(upgrader websocket.Upgrader) Option {
+	return func(h *Handler) {
+		h.upgrader = upgrader
+	}
+}
+
+// ServeHTTP handles WebSocket connections
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	conn, err := h.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		h.logger.Error("Failed to upgrade connection", "error", err)
+		return
+	}
+
+	client := &Client{
+		conn:   conn,
+		logger: h.logger,
+	}
+	defer client.Close()
+
+	if err := h.handleClient(ctx, client); err != nil {
+		h.logger.Error("Client handling error", "error", err)
+	}
+}
+
+// Client represents a WebSocket client connection
+type Client struct {
+	conn   *websocket.Conn
+	logger *slog.Logger
+	mu     sync.Mutex
+}
+
+func (c *Client) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.conn != nil {
+		c.conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		c.conn.Close()
+	}
+}
+
+// handleClient manages the client connection and message routing
+func (h *Handler) handleClient(ctx context.Context, client *Client) error {
+	// Configure connection
+	client.conn.SetReadLimit(maxMessageSize)
+	client.conn.SetReadDeadline(time.Now().Add(pongWait))
+	client.conn.SetPongHandler(func(string) error {
+		client.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	// Create chat client
+	chatClient, err := chat.NewAzureClient(ctx, chat.WithLogger(h.logger))
+	if err != nil {
+		return fmt.Errorf("failed to create chat client: %w", err)
+	}
+	defer chatClient.Close()
+
+	// Create error channel for goroutines
+	errChan := make(chan error, 2)
+
+	// Start chat event monitoring
+	go func() {
+		if err := chatClient.WatchServerEvents(ctx, client.conn); err != nil {
+			errChan <- fmt.Errorf("chat server event error: %w", err)
+		}
+	}()
+
+	// Start message handling
+	go func() {
+		if err := h.readPump(ctx, client, chatClient); err != nil {
+			errChan <- fmt.Errorf("client message handling error: %w", err)
+		}
+	}()
+
+	// Wait for context cancellation or error
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errChan:
+		return err
+	}
+}
+
+// readPump handles incoming messages from the WebSocket client
+func (h *Handler) readPump(ctx context.Context, client *Client, chatClient *chat.ChatGPTClient) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			_, message, err := client.conn.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					h.logger.Error("WebSocket read error", "error", err)
+				}
+				return err
+			}
+
+			if err := h.handleMessage(ctx, message, chatClient); err != nil {
+				h.logger.Error("Message handling error", "error", err)
+				continue
+			}
+		}
+	}
+}
+
+// handleMessage processes incoming WebSocket messages
+func (h *Handler) handleMessage(ctx context.Context, message []byte, chatClient *chat.ChatGPTClient) error {
+	var msg Message
+	if err := json.Unmarshal(message, &msg); err != nil {
+		return fmt.Errorf("invalid message format: %w", err)
+	}
+
+	switch msg.Type {
+	case "input_audio_buffer.append":
+		return h.handleAudioAppend(msg.Data, chatClient)
+	case "input_audio_buffer.clear":
+		return chatClient.ClearAudioBuffer()
+	default:
+		h.logger.Warn("Unhandled message type", "type", msg.Type)
+		return nil
+	}
+}
+
+// handleAudioAppend processes and sends audio data to the chat client
+func (h *Handler) handleAudioAppend(data interface{}, chatClient *chat.ChatGPTClient) error {
+	audioData, ok := data.(string)
+	if !ok {
+		return fmt.Errorf("invalid audio data format")
+	}
+
+	go func() {
+		processed, err := processAudio(audioData)
+		if err != nil {
+			h.logger.Error("Failed to process audio data", "error", err)
+			return
+		}
+		err = chatClient.AppendToAudioBuffer(processed)
+		if err != nil {
+			h.logger.Error("Failed to append audio to input buffer", "error", err)
+			return
+		}
+	}()
+	return nil
+
+}
+
+// processAudio handles audio format conversion
 func processAudio(data string) (string, error) {
-	// Decode base64 to PCM16
 	pcm16, err := audio.DecodePCM16FromBase64(data)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode base64: %w", err)
 	}
 
-	// Convert PCM16 to float32
 	float32Data := audio.PCM16ToFloat32(pcm16)
-
-	// Resample from 16kHz to 24kHz
 	resampledData := audio.ResampleAudio(float32Data, 16000, 24000)
 
-	// Encode back to base64
 	result := audio.Base64EncodeAudio(resampledData)
-
 	return result, nil
-}
-
-// HandleConnections handles WebSocket connections and message routing
-func HandleConnections(w http.ResponseWriter, r *http.Request, handleRecordedInput func(*chat.ChatGPTClient, string) error) {
-	// Upgrade the HTTP connection to a WebSocket connection
-	clientConnection, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("Failed to upgrade to WebSocket: %v", err)
-		return
-	}
-	defer clientConnection.Close()
-
-	// Establish a ChatGPT client for this session
-	chatClient, err := chat.NewAzureClient()
-	if err != nil {
-		log.Printf("Failed to establish ChatGPT connection: %v", err)
-		return
-	}
-	defer chatClient.Conn.Close()
-	go chatClient.WatchServerEvents(clientConnection)
-	for {
-		_, message, err := clientConnection.ReadMessage()
-		if err != nil {
-			log.Printf("Error reading message: %v", err)
-			break
-		}
-
-		var msg Message
-		if err := json.Unmarshal(message, &msg); err != nil {
-			log.Printf("Invalid message format: %v", err)
-			continue
-		}
-
-		if msg.Type == "input_audio_buffer.append" {
-			data, _ := msg.Data.(string)
-
-			go func(chatClient *chat.ChatGPTClient) {
-				data, err := processAudio(data)
-				if err != nil {
-					fmt.Println(err.Error())
-					return
-				}
-				err = chatClient.AppendToAudioBuffer(data)
-				if err != nil {
-					fmt.Printf("failed to send append to audio buffer event: %v\n", err)
-				}
-			}(chatClient)
-
-		} else if msg.Type == "input_audio_buffer.clear" {
-			err := chatClient.ClearAudioBuffer()
-			if err != nil {
-				fmt.Printf("failed to send append to audio buffer event: %v\n", err)
-			}
-		} else {
-			log.Printf("Unhandled message type: %s", msg.Type)
-		}
-	}
-	fmt.Println("Client disconnected")
 }
