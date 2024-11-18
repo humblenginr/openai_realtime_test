@@ -252,7 +252,7 @@ func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *
 		return clientWs.WriteMessage(1, []byte(data))
 
 	default:
-		c.logger.Debug("Received unhandled event type", "type", eventType)
+		c.logger.Info("Received unhandled event type", "type", eventType)
 		return nil
 	}
 }
