@@ -31,8 +31,12 @@ type Message struct {
 // NewHandler creates a new WebSocket handler with the provided options
 func NewHandler(opts ...Option) *Handler {
 	h := &Handler{
-		upgrader: websocket.Upgrader{},
-		logger:   slog.New(slog.NewJSONHandler(os.Stdout, nil)),
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true
+			},
+		},
+		logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 	}
 
 	// Apply options
