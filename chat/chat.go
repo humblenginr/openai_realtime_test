@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"pixa-demo/audio"
 	"sync"
 	"time"
 
@@ -248,8 +249,12 @@ func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *
 			return fmt.Errorf("failed to parse delta event: %v", err)
 		}
 		data = resp["delta"].(string)
-		// 1 here means that the message type is "Text Message"
-		return clientWs.WriteMessage(1, []byte(data))
+		audioBytes, err := audio.DecodeBase64(data)
+		if err != nil {
+			c.logger.Error("Could not decode base64 audio: ", "error", err)
+		}
+		// 2 here means that the message type is "Binary data"
+		return clientWs.WriteMessage(2, audioBytes)
 
 	default:
 		c.logger.Info("Received unhandled event type", "type", eventType)

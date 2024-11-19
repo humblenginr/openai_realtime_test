@@ -41,15 +41,22 @@ func ResampleAudio(inputData []float32, inputSampleRate, targetSampleRate float6
 	return output
 }
 
-// DecodePCM16FromBase64 decodes a base64 string into PCM16 samples
-// Returns the decoded int16 samples and any error encountered
-func DecodePCM16FromBase64(base64String string) ([]int16, error) {
+func DecodeBase64(base64String string) ([]byte, error) {
 	// Decode base64 string to bytes
 	bytes, err := base64.StdEncoding.DecodeString(base64String)
 	if err != nil {
 		return nil, err
 	}
+	return bytes, nil
+}
 
+// DecodePCM16FromBase64 decodes a base64 string into PCM16 samples
+// Returns the decoded int16 samples and any error encountered
+func DecodePCM16FromBase64(base64String string) ([]int16, error) {
+	bytes, err := DecodeBase64(base64String)
+	if err != nil {
+		return nil, err
+	}
 	// Convert bytes to int16 samples
 	samples := make([]int16, len(bytes)/2)
 	for i := 0; i < len(bytes); i += 2 {
