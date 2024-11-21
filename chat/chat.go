@@ -257,7 +257,11 @@ func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *
 		return clientWs.WriteMessage(2, audioBytes)
 
 	default:
-		c.logger.Info("Received unhandled event type", "type", eventType)
+		var resp map[string]interface{}
+		if err := json.Unmarshal(msg, &resp); err != nil {
+			return fmt.Errorf("failed to parse delta event: %v", err)
+		}
+		c.logger.Info("Unhandled event: ", resp)
 		return nil
 	}
 }
