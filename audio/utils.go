@@ -1,9 +1,58 @@
 package audio
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"fmt"
+	"github.com/viert/go-lame"
 )
+
+// PCM16ToMP3 converts PCM16 (24khz) audio data from base64 string to MP3 format
+// with 8kHz sample rate. Returns MP3 bytes and error if any.
+func PCM16ToMP3(pcm16Data []byte) ([]byte, error) {
+	// Create MP3 encoder
+	buf := new(bytes.Buffer)
+	encoder := lame.NewEncoder(buf)
+	defer encoder.Close()
+
+	// Set encoder options (sample rate, channels, etc.)
+	// Set input sample rate
+	if err := encoder.SetInSamplerate(24000); err != nil {
+		return nil, fmt.Errorf("failed to set input sample rate: %v", err)
+	}
+
+	// Set quality (7 = ok quality, really fast - since we're going for low bitrate)
+	if err := encoder.SetQuality(7); err != nil {
+		return nil, fmt.Errorf("failed to set quality: %v", err)
+	}
+
+	// Set low bitrate appropriate for 8kHz audio
+	if err := encoder.SetBrate(16); err != nil {
+		return nil, fmt.Errorf("failed to set bitrate: %v", err)
+	}
+
+	// Force mono output for 8kHz
+	if err := encoder.SetMode(lame.MpegMono); err != nil {
+		return nil, fmt.Errorf("failed to set mono mode: %v", err)
+	}
+
+	// Set up lowpass filter for 8kHz output
+	if err := encoder.SetLowPassFrequency(4000); err != nil {
+		return nil, fmt.Errorf("failed to set lowpass filter: %v", err)
+	}
+
+	// Write PCM data to the encoder
+	_, err := encoder.Write(pcm16Data)
+	if err != nil {
+		return nil, fmt.Errorf("Error encoding:", err)
+	}
+
+	// Flush any remaining MP3 data
+	encoder.Close()
+
+	return buf.Bytes(), nil
+}
 
 // ResampleAudio resamples audio data from one sample rate to another using linear interpolation
 // inputData: the input audio samples as []float32
