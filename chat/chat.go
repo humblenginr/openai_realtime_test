@@ -229,16 +229,7 @@ func (c *ChatGPTClient) handleServerEvent(clientWs *websocket.Conn) error {
 }
 
 func transformOutputAudio(data string) ([]byte, error) {
-	pcm16Data, err := audio.DecodeBase64(data)
-	if err != nil {
-		return nil, fmt.Errorf("Could not decode base64 audio")
-	}
-	// converts the pcm16 to 8khz mp3 data
-	output, err := audio.PCM16ToMP3(pcm16Data)
-	if err != nil {
-		return nil, fmt.Errorf("Could not convert pcm16 audio to mp3: %s", err)
-	}
-	return output, nil
+	return resampleOutputAudio(data)
 }
 
 // Resample the audio from 24khz to 16khz
@@ -272,13 +263,10 @@ func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *
 		}
 		data = resp["delta"].(string)
 		go func() {
-			fmt.Println("Received output from openAI. DataLength: ", len(data))
 			audioBytes, err := transformOutputAudio(data)
 			if err != nil {
 				c.logger.Error("Could not transform output audio", "error", err)
 			}
-
-			fmt.Println("Sending output data to the client. DataLength: ", len(audioBytes))
 			// 2 here means that the message type is "Binary data"
 			clientWs.WriteMessage(2, audioBytes)
 		}()
