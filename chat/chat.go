@@ -24,6 +24,8 @@ const (
 	pongWait       = 60 * time.Second
 	pingPeriod     = (pongWait * 9) / 10
 	maxMessageSize = 1 * 1024 * 1024 // 1Mib
+
+	OutputAudioChunkSize = 4096
 )
 
 // ClientOption allows for customizing the ChatGPTClient
@@ -196,6 +198,22 @@ func (c *ChatGPTClient) WatchServerEvents(ctx context.Context, clientWs *websock
 		return fmt.Errorf("client WebSocket connection is nil")
 	}
 
+	outChan := make(chan []byte)
+	inChan := make(chan []byte)
+	errChan := make(chan error)
+	bsc := NewBufferSizeController(OutputAudioChunkSize, inChan, outChan, errChan)
+	go func() {
+		for {
+			c.logger.Error("error while splitting output data into chunks: ", "error", <-errChan)
+		}
+	}()
+	go func() {
+		for {
+			clientWs.WriteMessage(2, <-outChan)
+		}
+	}()
+	go bsc.Start()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -203,7 +221,7 @@ func (c *ChatGPTClient) WatchServerEvents(ctx context.Context, clientWs *websock
 		case <-c.done:
 			return fmt.Errorf("client closed")
 		default:
-			if err := c.handleServerEvent(clientWs); err != nil {
+			if err := c.handleServerEvent(clientWs, &bsc); err != nil {
 				c.logger.Error("Error handling server event", "error", err)
 				return err
 			}
@@ -211,7 +229,8 @@ func (c *ChatGPTClient) WatchServerEvents(ctx context.Context, clientWs *websock
 	}
 }
 
-func (c *ChatGPTClient) handleServerEvent(clientWs *websocket.Conn) error {
+func (c *ChatGPTClient) handleServerEvent(clientWs *websocket.Conn, autoBuffer *BufferSizeController) error {
+
 	_, msg, err := c.conn.ReadMessage()
 	if err != nil {
 		if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
@@ -225,20 +244,12 @@ func (c *ChatGPTClient) handleServerEvent(clientWs *websocket.Conn) error {
 		return fmt.Errorf("failed to parse base event: %v", err)
 	}
 
-	return c.processEvent(baseEvent.Type, msg, clientWs)
+	return c.processEvent(baseEvent.Type, msg, clientWs, autoBuffer)
 }
 
+// I need to send it in chunks
 func transformOutputAudio(data string) ([]byte, error) {
-	pcm16Data, err := audio.DecodeBase64(data)
-	if err != nil {
-		return nil, fmt.Errorf("Could not decode base64 audio")
-	}
-	// converts the pcm16 to 8khz mp3 data
-	output, err := audio.PCM16ToMP3(pcm16Data)
-	if err != nil {
-		return nil, fmt.Errorf("Could not convert pcm16 audio to mp3: %s", err)
-	}
-	return output, nil
+	return resampleOutputAudio(data)
 }
 
 // Resample the audio from 24khz to 16khz
@@ -250,7 +261,7 @@ func resampleOutputAudio(data string) ([]byte, error) {
 	fmt.Printf("length of the pcm16 data: %d", len(pcm16Data))
 	return audio.Float32To16BitPCM(audio.ResampleAudio(audio.PCM16ToFloat32(pcm16Data), 24000, 16000)), nil
 }
-func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *websocket.Conn) error {
+func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *websocket.Conn, bsc *BufferSizeController) error {
 	switch eventType {
 	case ErrorEventType:
 		var errorEvent ErrorEvent
@@ -263,6 +274,10 @@ func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *
 			"message", errorEvent.Error.Message)
 		return fmt.Errorf("server error: %s", errorEvent.Error.Message)
 
+	case "response.audio.done":
+		// send the remaining bytes
+		bsc.Flush()
+		return nil
 	case "response.audio.delta":
 		c.logger.Info("Received response.audio.delta")
 		var data string
@@ -272,15 +287,11 @@ func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *
 		}
 		data = resp["delta"].(string)
 		go func() {
-			fmt.Println("Received output from openAI. DataLength: ", len(data))
 			audioBytes, err := transformOutputAudio(data)
 			if err != nil {
 				c.logger.Error("Could not transform output audio", "error", err)
 			}
-
-			fmt.Println("Sending output data to the client. DataLength: ", len(audioBytes))
-			// 2 here means that the message type is "Binary data"
-			clientWs.WriteMessage(2, audioBytes)
+			bsc.inChan <- audioBytes
 		}()
 		return nil
 

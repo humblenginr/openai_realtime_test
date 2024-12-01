@@ -3,6 +3,7 @@ package websocket
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"log/slog"
@@ -174,15 +175,91 @@ func (h *Handler) handleMessage(message []byte, chatClient *chat.ChatGPTClient, 
 	return fmt.Errorf("Message type: %d is not handled", msgType)
 }
 
-// handleAudioAppend processes and sends audio data to the chat client
+func BytesToInt16Slice(data []byte) ([]int16, error) {
+	if len(data)%2 != 0 {
+		return nil, fmt.Errorf("byte slice length is not a multiple of 2")
+	}
+	int16Slice := make([]int16, len(data)/2)
+	for i := 0; i < len(int16Slice); i++ {
+		int16Slice[i] = int16(binary.LittleEndian.Uint16(data[i*2 : i*2+2]))
+	}
+	return int16Slice, nil
+}
+
+// processAudio converts stereo 16kHz PCM16 to mono 24kHz PCM16
+func processAudio(data []byte) (string, error) {
+	// Convert bytes to int16 samples
+	audioSlice, err := BytesToInt16Slice(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert []byte to []int16: %w", err)
+	}
+
+	// Step 1: Convert stereo to mono if input is 2 channels
+	// Assuming interleaved stereo samples: [left1, right1, left2, right2, ...]
+	monoSlice := make([]int16, len(audioSlice)/2)
+	for i := 0; i < len(monoSlice); i++ {
+		// Average the left and right channels
+		left := float64(audioSlice[i*2])
+		right := float64(audioSlice[i*2+1])
+		monoSample := int16((left + right) / 2)
+		monoSlice[i] = monoSample
+	}
+
+	// Step 2: Convert to float32 for resampling
+	float32Data := make([]float32, len(monoSlice))
+	for i, sample := range monoSlice {
+		float32Data[i] = float32(sample) / 32768.0 // Normalize to [-1, 1]
+	}
+
+	// Step 3: Resample from 16kHz to 24kHz
+	resampledFloat := audio.ResampleAudio(float32Data, 16000, 24000)
+
+	// Step 4: Convert back to int16 PCM
+	resampledPCM := make([]int16, len(resampledFloat))
+	for i, sample := range resampledFloat {
+		// Clamp values to [-1, 1] before converting back to int16
+		if sample > 1.0 {
+			sample = 1.0
+		} else if sample < -1.0 {
+			sample = -1.0
+		}
+		resampledPCM[i] = int16(sample * 32767.0)
+	}
+
+	// Step 5: Convert to bytes (ensuring little-endian)
+	resultBytes := make([]byte, len(resampledPCM)*2)
+	for i, sample := range resampledPCM {
+		binary.LittleEndian.PutUint16(resultBytes[i*2:], uint16(sample))
+	}
+
+	// Step 6: Base64 encode
+	result := base64.StdEncoding.EncodeToString(resultBytes)
+	return result, nil
+}
+
+// Helper function to verify audio format
+func verifyAudioFormat(data []byte) error {
+	if len(data)%4 != 0 { // For stereo int16, length should be multiple of 4
+		return fmt.Errorf("invalid data length for stereo PCM16: %d bytes", len(data))
+	}
+	return nil
+}
+
 func (h *Handler) handleAudioAppend(data []byte, chatClient *chat.ChatGPTClient) error {
+	if err := verifyAudioFormat(data); err != nil {
+		return fmt.Errorf("invalid audio format: %w", err)
+	}
+
 	go func() {
 		processed, err := processAudio(data)
 		if err != nil {
 			h.logger.Error("Failed to process audio data", "error", err)
 			return
 		}
-		h.logger.Info("Successfully processed audio data")
+		h.logger.Info("Successfully processed audio data",
+			"inputLength", len(data),
+			"outputLength", len(processed))
+
 		err = chatClient.AppendToAudioBuffer(processed)
 		if err != nil {
 			h.logger.Error("Failed to append audio to input buffer", "error", err)
@@ -191,36 +268,4 @@ func (h *Handler) handleAudioAppend(data []byte, chatClient *chat.ChatGPTClient)
 		h.logger.Info("Successfully appended audio data to input buffer")
 	}()
 	return nil
-
-}
-
-func BytesToInt16Slice(data []byte) ([]int16, error) {
-	// Ensure the byte slice length is even
-	if len(data)%2 != 0 {
-		return nil, fmt.Errorf("byte slice length is not a multiple of 2")
-	}
-
-	// Create a slice to hold the int16 values
-	int16Slice := make([]int16, len(data)/2)
-
-	// Convert byte slice to int16 slice
-	for i := 0; i < len(int16Slice); i++ {
-		int16Slice[i] = int16(binary.LittleEndian.Uint16(data[i*2 : i*2+2]))
-	}
-
-	return int16Slice, nil
-}
-
-// processAudio handles audio format conversion
-// it takes in the PCM16 audio bytes as input and returns the resampled, base64 encoded audio string
-func processAudio(data []byte) (string, error) {
-	audioSlice, err := BytesToInt16Slice(data)
-	if err != nil {
-		return "", fmt.Errorf("Failed to convert []byte to []int16: ", err)
-	}
-	float32Data := audio.PCM16ToFloat32(audioSlice)
-	resampledData := audio.ResampleAudio(float32Data, 16000, 24000)
-
-	result := audio.Base64EncodeAudio(resampledData)
-	return result, nil
 }
