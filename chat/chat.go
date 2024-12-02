@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -16,8 +17,7 @@ import (
 
 const (
 	// URLs for different environments
-	AzureURL  = "wss://pixa-realtime.openai.azure.com/openai/realtime?api-version=2024-10-01-preview&deployment=gpt-4o-realtime-preview"
-	OpenAIURL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
+	AzureURL = "wss://pixa-realtime.openai.azure.com/openai/realtime?api-version=2024-10-01-preview&deployment=gpt-4o-realtime-preview"
 
 	// WebSocket configuration
 	writeWait      = 10 * time.Second
@@ -87,40 +87,6 @@ func NewAzureClient(ctx context.Context, opts ...ClientOption) (*ChatGPTClient, 
 
 	// Ensure required headers are set (and can't be overridden)
 	client.headers.Set("api-key", apiKey)
-
-	// Initialize WebSocket connection
-	if err := client.connect(ctx); err != nil {
-		return nil, err
-	}
-
-	// Start ping-pong handler
-	go client.pingHandler()
-
-	return client, nil
-}
-
-// NewOpenAIClient creates a new ChatGPT client using OpenAI credentials
-func NewOpenAIClient(ctx context.Context, opts ...ClientOption) (*ChatGPTClient, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
-	}
-
-	// Initialize with default headers
-	client := &ChatGPTClient{
-		url:     OpenAIURL,
-		headers: http.Header{},
-		logger:  slog.New(slog.NewJSONHandler(os.Stdout, nil)),
-		done:    make(chan struct{}),
-	}
-
-	// Apply options first
-	for _, opt := range opts {
-		opt(client)
-	}
-
-	// Ensure required headers are set (and can't be overridden)
-	client.headers.Set("Authorization", "Bearer "+apiKey)
 
 	// Initialize WebSocket connection
 	if err := client.connect(ctx); err != nil {
@@ -257,20 +223,22 @@ func (c *ChatGPTClient) handleServerEvent(clientWs *websocket.Conn, autoBuffer *
 	return c.processEvent(baseEvent.Type, msg, clientWs, autoBuffer)
 }
 
-// I need to send it in chunks
 func transformOutputAudio(data string) ([]byte, error) {
-	return resampleOutputAudio(data)
-}
-
-// Resample the audio from 24khz to 16khz
-func resampleOutputAudio(data string) ([]byte, error) {
-	pcm16Data, err := audio.DecodePCM16FromBase64(data)
+	pcm16Data, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return nil, fmt.Errorf("Could not decode base64 audio")
 	}
-	fmt.Printf("length of the pcm16 data: %d", len(pcm16Data))
-	return audio.Float32To16BitPCM(audio.ResampleAudio(audio.PCM16ToFloat32(pcm16Data), 24000, 16000)), nil
+
+	a, err := audio.FromPCM16(pcm16Data, 24000, 1)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pcm16 data: %v", err)
+	}
+
+	a.Resample(16000)
+
+	return a.AsPCM16(), nil
 }
+
 func (c *ChatGPTClient) processEvent(eventType EventType, msg []byte, clientWs *websocket.Conn, bsc *BufferSizeController) error {
 	switch eventType {
 	case ErrorEventType:
