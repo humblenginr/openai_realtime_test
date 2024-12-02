@@ -174,23 +174,13 @@ func (h *Handler) handleMessage(message []byte, chatClient *chat.ChatGPTClient, 
 	return fmt.Errorf("Message type: %d is not handled", msgType)
 }
 
-// processAudio converts stereo 16kHz PCM16 to mono 24kHz PCM16
 func processAudio(data []byte) (string, error) {
-	// Convert bytes to int16 samples
 	a, err := audio.FromPCM16(data, 16000, 2)
 	if err != nil {
-		return "", fmt.Errorf("invalid pcm16 audio data: %v", err)
+		return "", fmt.Errorf("Invalid pcm16 data: %v", err)
 	}
-
-	err = a.Resample(24000)
-	if err != nil {
-		return "", fmt.Errorf("failed to resample audio: %v", err)
-	}
-
-	err = a.Downmix(1)
-	if err != nil {
-		return "", fmt.Errorf("failed to downmix audio: %v", err)
-	}
+	a.StereoToMono()
+	a.Resample(24000)
 
 	// Step 6: Base64 encode
 	result := base64.StdEncoding.EncodeToString(a.AsPCM16())

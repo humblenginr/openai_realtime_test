@@ -233,9 +233,7 @@ func transformOutputAudio(data string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid pcm16 data: %v", err)
 	}
-
 	a.Resample(16000)
-
 	return a.AsPCM16(), nil
 }
 
