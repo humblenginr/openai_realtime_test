@@ -2,63 +2,44 @@ package audio
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"github.com/viert/go-lame"
 )
 
-// PCM16ToMP3 converts PCM16 (24khz) audio data from base64 string to MP3 format
-// with 8kHz sample rate. Returns MP3 bytes and error if any.
-func PCM16ToMP3(pcm16Data []byte) ([]byte, error) {
-	// Create MP3 encoder
+func float32ToMP3(data []float32, sampleRate, channels int) ([]byte, error) {
+	pcmData := Float32ToPcm16(data)
 	buf := new(bytes.Buffer)
 	encoder := lame.NewEncoder(buf)
 	defer encoder.Close()
 
-	// Set encoder options (sample rate, channels, etc.)
-	// Set input sample rate
-	if err := encoder.SetInSamplerate(24000); err != nil {
+	if err := encoder.SetInSamplerate(sampleRate); err != nil {
 		return nil, fmt.Errorf("failed to set input sample rate: %v", err)
 	}
-
-	// Set quality (7 = ok quality, really fast - since we're going for low bitrate)
 	if err := encoder.SetQuality(7); err != nil {
 		return nil, fmt.Errorf("failed to set quality: %v", err)
 	}
-
-	// Set low bitrate appropriate for 8kHz audio
 	if err := encoder.SetBrate(16); err != nil {
 		return nil, fmt.Errorf("failed to set bitrate: %v", err)
 	}
-
-	// Force mono output for 8kHz
-	if err := encoder.SetMode(lame.MpegMono); err != nil {
-		return nil, fmt.Errorf("failed to set mono mode: %v", err)
+	if channels == 1 {
+		if err := encoder.SetMode(lame.MpegMono); err != nil {
+			return nil, fmt.Errorf("failed to set mono mode: %v", err)
+		}
 	}
-
-	// Set up lowpass filter for 8kHz output
 	if err := encoder.SetLowPassFrequency(4000); err != nil {
 		return nil, fmt.Errorf("failed to set lowpass filter: %v", err)
 	}
 
-	// Write PCM data to the encoder
-	_, err := encoder.Write(pcm16Data)
+	_, err := encoder.Write(pcmData)
 	if err != nil {
-		return nil, fmt.Errorf("Error encoding:", err)
+		return nil, fmt.Errorf("error encoding: %v", err)
 	}
 
-	// Flush any remaining MP3 data
 	encoder.Close()
-
 	return buf.Bytes(), nil
 }
 
-// ResampleAudio resamples audio data from one sample rate to another using linear interpolation
-// inputData: the input audio samples as []float32
-// inputSampleRate: the original sampling rate in Hz
-// targetSampleRate: the desired output sampling rate in Hz
-// Returns: resampled audio data as []float32
 func ResampleAudio(inputData []float32, inputSampleRate, targetSampleRate float64) []float32 {
 	ratio := targetSampleRate / inputSampleRate
 	outputLength := int(float64(len(inputData)) * ratio)
@@ -90,79 +71,120 @@ func ResampleAudio(inputData []float32, inputSampleRate, targetSampleRate float6
 	return output
 }
 
-func DecodeBase64(base64String string) ([]byte, error) {
-	// Decode base64 string to bytes
-	bytes, err := base64.StdEncoding.DecodeString(base64String)
-	if err != nil {
-		return nil, err
+func Resample(inputData []float32, inputSampleRate, targetSampleRate float64) []float32 {
+	ratio := targetSampleRate / inputSampleRate
+	outputLength := int(float64(len(inputData)) * ratio)
+	output := make([]float32, outputLength)
+
+	for i := 0; i < outputLength; i++ {
+		position := float64(i) / ratio
+		index := int(position)
+		decimal := position - float64(index)
+
+		var a float32
+		if index < len(inputData) {
+			a = inputData[index]
+		}
+
+		var b float32
+		if index+1 < len(inputData) {
+			b = inputData[index+1]
+		} else if len(inputData) > 0 {
+			b = inputData[len(inputData)-1]
+		}
+
+		output[i] = a + (b-a)*float32(decimal)
 	}
-	return bytes, nil
+
+	return output
 }
 
-// DecodePCM16FromBase64 decodes a base64 string into PCM16 samples
-// Returns the decoded int16 samples and any error encountered
-func DecodePCM16FromBase64(base64String string) ([]int16, error) {
-	bytes, err := DecodeBase64(base64String)
-	if err != nil {
-		return nil, err
-	}
-	// Convert bytes to int16 samples
-	samples := make([]int16, len(bytes)/2)
-	for i := 0; i < len(bytes); i += 2 {
-		samples[i/2] = int16(binary.LittleEndian.Uint16(bytes[i : i+2]))
-	}
-
-	return samples, nil
-}
-
-// Float32To16BitPCM converts float32 audio samples to PCM16 format
-// Returns the converted bytes
-func Float32To16BitPCM(float32Array []float32) []byte {
+func Float32ToPcm16(float32Array []float32) []byte {
 	buffer := make([]byte, len(float32Array)*2)
-
-	for i := 0; i < len(float32Array); i++ {
-		// Clamp value between -1 and 1
-		sample := float32Array[i]
+	for i, sample := range float32Array {
 		if sample > 1.0 {
 			sample = 1.0
 		} else if sample < -1.0 {
 			sample = -1.0
 		}
-
-		// Convert to int16
 		var value int16
 		if sample < 0 {
 			value = int16(sample * 0x8000)
 		} else {
 			value = int16(sample * 0x7fff)
 		}
-
-		// Write to buffer in little-endian
 		binary.LittleEndian.PutUint16(buffer[i*2:], uint16(value))
 	}
-
 	return buffer
 }
 
-// Base64EncodeAudio converts float32 audio samples to base64-encoded PCM16 data
-// The function processes the data in chunks to handle large arrays efficiently
-func Base64EncodeAudio(float32Array []float32) string {
-	// Convert to PCM16 first
-	pcmData := Float32To16BitPCM(float32Array)
+func Pcm16toFloat32(data []byte) []float32 {
+	if len(data)%2 != 0 {
+		panic("Input data length must be even for 16-bit PCM")
+	}
 
-	// Encode to base64
-	return base64.StdEncoding.EncodeToString(pcmData)
-}
+	floatData := make([]float32, len(data)/2)
+	for i := 0; i < len(data); i += 2 {
+		// Combine two bytes into a signed 16-bit integer
+		sample := int16(data[i]) | int16(data[i+1])<<8
 
-// function to convert PCM16 back to float32
-func PCM16ToFloat32(pcmData []int16) []float32 {
-	float32Array := make([]float32, len(pcmData))
-	for i, sample := range pcmData {
+		// Normalize to the range [-1.0, 1.0]
 		if sample < 0 {
-			float32Array[i] = float32(sample) / 0x8000
+			floatData[i/2] = float32(sample) / 0x8000
 		} else {
-			float32Array[i] = float32(sample) / 0x7fff
+			floatData[i/2] = float32(sample) / 0x7FFF
 		}
 	}
-	return float32Array
+	return floatData
+}
+
+func Int16ToFloat32(data []int16) []float32 {
+	float32Data := make([]float32, len(data))
+	for i, sample := range data {
+		float32Data[i] = float32(sample) / 32768.0 // Normalize to [-1, 1]
+	}
+	return float32Data
+}
+
+func Float32ToInt16(data []float32) []int16 {
+	// Create a slice of int16 with the same length as the input
+	output := make([]int16, len(data))
+
+	for i, sample := range data {
+		// Clamp the sample to the range [-1.0, 1.0]
+		if sample > 1.0 {
+			sample = 1.0
+		} else if sample < -1.0 {
+			sample = -1.0
+		}
+
+		// Scale and convert to int16
+		if sample < 0 {
+			output[i] = int16(sample * 32768) // 0x8000
+		} else {
+			output[i] = int16(sample * 32767) // 0x7FFF
+		}
+	}
+
+	return output
+}
+
+func Pcm16ToInt16Slice(data []byte) ([]int16, error) {
+	if len(data)%2 != 0 {
+		return nil, fmt.Errorf("byte slice length is not a multiple of 2")
+	}
+	int16Slice := make([]int16, len(data)/2)
+	for i := 0; i < len(int16Slice); i++ {
+		int16Slice[i] = int16(binary.LittleEndian.Uint16(data[i*2 : i*2+2]))
+	}
+	return int16Slice, nil
+}
+
+func Int16ToPCM(data []int16) []byte {
+
+	resultBytes := make([]byte, len(data)*2)
+	for i, sample := range data {
+		binary.LittleEndian.PutUint16(resultBytes[i*2:], uint16(sample))
+	}
+	return resultBytes
 }

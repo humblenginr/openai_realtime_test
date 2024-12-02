@@ -1,4 +1,4 @@
-package chat
+package utils
 
 import (
 	"bytes"
@@ -13,21 +13,21 @@ type BufferSizeController struct {
 	mutex                 sync.Mutex
 	outputByteArrayLength int
 
-	inChan  chan []byte
 	outChan chan []byte
-	errChan chan error
 }
 
-func NewBufferSizeController(capacity int, inChan chan []byte, outChan chan []byte, errChan chan error) BufferSizeController {
+func NewBufferSizeController(capacity int) BufferSizeController {
 	return BufferSizeController{
 		buffer:                bytes.Buffer{},
 		mutex:                 sync.Mutex{},
 		outputByteArrayLength: capacity,
 
-		inChan:  inChan,
-		outChan: outChan,
-		errChan: errChan,
+		outChan: make(chan []byte),
 	}
+}
+
+func (ab *BufferSizeController) GetOutputChannel() <-chan []byte {
+	return ab.outChan
 }
 
 // this basically sends the leftover data from the internal buffer to the outChan
@@ -63,13 +63,10 @@ func (ab *BufferSizeController) processData(data []byte) error {
 	return ab.makeChunksFromBuffer()
 }
 
-// starts listening to the inChan for data
-func (ab *BufferSizeController) Start() {
-	for {
-		data := <-ab.inChan
-		err := ab.processData(data)
-		if err != nil {
-			ab.errChan <- err
-		}
+func (ab *BufferSizeController) Write(data []byte) error {
+	err := ab.processData(data)
+	if err != nil {
+		return err
 	}
+	return nil
 }
