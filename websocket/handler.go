@@ -3,15 +3,14 @@ package websocket
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"sync"
 
+	"pixa-demo/ai"
 	"pixa-demo/audio"
-	"pixa-demo/chat"
 
 	"github.com/gorilla/websocket"
 )
@@ -108,26 +107,34 @@ func (c *Client) Close() {
 
 // handleClient manages the client connection and message routing
 func (h *Handler) handleClient(ctx context.Context, client *Client) error {
-	// Create chat client
-	chatClient, err := chat.NewAzureClient(ctx, chat.WithLogger(h.logger))
+	aiClient := ai.NewOpenAIClient(ai.AzureURL)
+	// Start handling AI responses
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case a := <-aiClient.GetResponseStream():
+				if a.GetSampleRate() != 16000 {
+					a.Resample(16000)
+				}
+				client.conn.WriteMessage(2, a.AsPCM16())
+			}
+
+		}
+	}()
+
+	err := aiClient.Initialize(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to create chat client: %w", err)
+		return fmt.Errorf("Could not initialize AI Client: %v", err)
 	}
-	defer chatClient.Close()
 
 	// Create error channel for goroutines
 	errChan := make(chan error, 2)
 
-	// Start chat event monitoring
+	// Start handling messages from the client
 	go func() {
-		if err := chatClient.WatchServerEvents(ctx, client.conn); err != nil {
-			errChan <- fmt.Errorf("chat server event error: %w", err)
-		}
-	}()
-
-	// Start message handling
-	go func() {
-		if err := h.readPump(ctx, client, chatClient); err != nil {
+		if err := h.readPump(ctx, client, aiClient); err != nil {
 			errChan <- fmt.Errorf("client message handling error: %w", err)
 		}
 	}()
@@ -142,7 +149,7 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 }
 
 // readPump handles incoming messages from the WebSocket client
-func (h *Handler) readPump(ctx context.Context, client *Client, chatClient *chat.ChatGPTClient) error {
+func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AIClient) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -155,56 +162,15 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient *chat
 				}
 				return err
 			}
-			if err := h.handleMessage(message, chatClient, typ); err != nil {
-				h.logger.Error("Message handling error", "error", err)
-				continue
+
+			if typ == 2 {
+				a := audio.FromPCM16(message, 16000, 2)
+				err := chatClient.SendAudio(a)
+				if err != nil {
+					h.logger.Error("Could not send audio to AI Client", "error", err)
+				}
+
 			}
 		}
 	}
-}
-
-// handleMessage processes incoming WebSocket messages
-func (h *Handler) handleMessage(message []byte, chatClient *chat.ChatGPTClient, msgType int) error {
-	// the hardware device will send binary PCM data
-	// 1 means the message type is TextMessage
-	// 2 means the message type is BinaryMessage
-	if msgType == 2 {
-		return h.handleAudioAppend(message, chatClient)
-	}
-	return fmt.Errorf("Message type: %d is not handled", msgType)
-}
-
-func processAudio(data []byte) (string, error) {
-	a, err := audio.FromPCM16(data, 16000, 2)
-	if err != nil {
-		return "", fmt.Errorf("Invalid pcm16 data: %v", err)
-	}
-	a.StereoToMono()
-	a.Resample(24000)
-
-	// Step 6: Base64 encode
-	result := base64.StdEncoding.EncodeToString(a.AsPCM16())
-	return result, nil
-}
-
-func (h *Handler) handleAudioAppend(data []byte, chatClient *chat.ChatGPTClient) error {
-
-	go func() {
-		processed, err := processAudio(data)
-		if err != nil {
-			h.logger.Error("Failed to process audio data", "error", err)
-			return
-		}
-		h.logger.Info("Successfully processed audio data",
-			"inputLength", len(data),
-			"outputLength", len(processed))
-
-		err = chatClient.AppendToAudioBuffer(processed)
-		if err != nil {
-			h.logger.Error("Failed to append audio to input buffer", "error", err)
-			return
-		}
-		h.logger.Info("Successfully appended audio data to input buffer")
-	}()
-	return nil
 }

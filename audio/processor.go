@@ -19,6 +19,14 @@ type Audio struct {
 //func FromMP3(){}
 //func FromWAV(){}
 
+func (a *Audio) GetChannels() int {
+	return a.channels
+}
+
+func (a *Audio) GetSampleRate() int {
+	return a.sampleRate
+}
+
 func (a *Audio) AsFloat32() []float32 {
 	return a.float32Data
 }
@@ -34,23 +42,22 @@ func (a *Audio) AsMP3() ([]byte, error) {
 	return mp3Data, nil
 }
 
-func FromPCM16(data []byte, sampleRate int, channels int) (Audio, error) {
+func FromPCM16(data []byte, sampleRate int, channels int) Audio {
 	return Audio{
 		float32Data: Pcm16toFloat32(data),
 		sampleRate:  sampleRate,
 		channels:    channels,
-	}, nil
+	}
 }
 
-func (a *Audio) Resample(targetSampleRate int) error {
+func (a *Audio) Resample(targetSampleRate int) {
 	a.float32Data = ResampleAudio(a.float32Data, float64(a.sampleRate), float64(targetSampleRate))
 	a.sampleRate = targetSampleRate
-	return nil
 }
 
 // Convert stereo to mono if input is 2 channels
 // Assuming interleaved stereo samples: [left1, right1, left2, right2, ...]
-func (a *Audio) StereoToMono() error {
+func (a *Audio) StereoToMono() {
 	audioSlice := Float32ToInt16(a.float32Data)
 
 	monoSlice := make([]int16, len(audioSlice)/2)
@@ -64,5 +71,4 @@ func (a *Audio) StereoToMono() error {
 
 	a.float32Data = Int16ToFloat32(monoSlice)
 	a.channels = 1
-	return nil
 }
