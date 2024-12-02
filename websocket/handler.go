@@ -7,15 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"sync"
 
 	"pixa-demo/ai"
 	"pixa-demo/audio"
+	"pixa-demo/utils"
 
 	"github.com/gorilla/websocket"
 )
-
-const ()
 
 // Handler manages WebSocket connections and message routing
 type Handler struct {
@@ -23,14 +21,8 @@ type Handler struct {
 	logger   *slog.Logger
 }
 
-// Message defines the structure of WebSocket messages
-type Message struct {
-	Type string      `json:"type"`
-	Data interface{} `json:"data"`
-}
-
 // NewHandler creates a new WebSocket handler with the provided options
-func NewHandler(opts ...Option) *Handler {
+func NewHandler() *Handler {
 	h := &Handler{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -40,29 +32,7 @@ func NewHandler(opts ...Option) *Handler {
 		logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 	}
 
-	// Apply options
-	for _, opt := range opts {
-		opt(h)
-	}
-
 	return h
-}
-
-// Option allows for customizing the Handler
-type Option func(*Handler)
-
-// WithLogger sets a custom logger
-func WithLogger(logger *slog.Logger) Option {
-	return func(h *Handler) {
-		h.logger = logger
-	}
-}
-
-// WithUpgrader sets a custom WebSocket upgrader
-func WithUpgrader(upgrader websocket.Upgrader) Option {
-	return func(h *Handler) {
-		h.upgrader = upgrader
-	}
 }
 
 // ServeHTTP handles WebSocket connections
@@ -87,27 +57,40 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Client represents a WebSocket client connection
-type Client struct {
-	conn   *websocket.Conn
-	logger *slog.Logger
-	mu     sync.Mutex
-}
-
-func (c *Client) Close() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.conn != nil {
-		c.conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-		c.conn.Close()
-	}
-}
-
 // handleClient manages the client connection and message routing
 func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 	aiClient := ai.NewOpenAIClient(ai.AzureURL)
+
+	ab := utils.NewBufferSizeController(4096)
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case audio := <-ab.GetOutputChannel():
+				client.conn.WriteMessage(2, audio)
+
+			}
+
+		}
+
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case e := <-aiClient.GetEventsStream():
+				if e == ai.ResponseAudioDoneEventType {
+					ab.Flush()
+				}
+			}
+
+		}
+	}()
+
 	// Start handling AI responses
 	go func() {
 		for {
@@ -118,7 +101,10 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 				if a.GetSampleRate() != 16000 {
 					a.Resample(16000)
 				}
-				client.conn.WriteMessage(2, a.AsPCM16())
+				err := ab.Write(a.AsPCM16())
+				if err != nil {
+					h.logger.Error("Cannot write to BufferSizeController buffer", "error", err)
+				}
 			}
 
 		}

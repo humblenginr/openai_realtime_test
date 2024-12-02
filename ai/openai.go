@@ -35,6 +35,8 @@ type OpenAIClient struct {
 	closeOnce sync.Once
 
 	responseStream chan audio.Audio
+	// eventsStream lets the client know when some important events happen in the model, like when the model has detected the start of speech, end of speech, completed the response etc. The client can use these to events to curate the behaviour of the system.
+	eventsStream chan EventType
 }
 
 func NewOpenAIClient(url string) *OpenAIClient {
@@ -44,6 +46,7 @@ func NewOpenAIClient(url string) *OpenAIClient {
 		done:           make(chan struct{}),
 		headers:        http.Header{},
 		responseStream: make(chan audio.Audio),
+		eventsStream:   make(chan EventType),
 	}
 }
 
@@ -125,6 +128,7 @@ func (c *OpenAIClient) processEvent(eventType EventType, msg []byte) error {
 
 	case ResponseAudioDoneEventType:
 		// send the remaining bytes
+		c.eventsStream <- ResponseAudioDoneEventType
 		return nil
 	case ResponseAudioDeltaEventType:
 		fmt.Println("Received audio delta")
@@ -183,6 +187,10 @@ func (c *OpenAIClient) watchServerEvents(ctx context.Context) error {
 		}
 	}
 
+}
+
+func (c *OpenAIClient) GetEventsStream() <-chan EventType {
+	return c.eventsStream
 }
 
 func (c *OpenAIClient) GetResponseStream() <-chan audio.Audio {
