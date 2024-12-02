@@ -204,12 +204,22 @@ func (c *ChatGPTClient) WatchServerEvents(ctx context.Context, clientWs *websock
 	bsc := NewBufferSizeController(OutputAudioChunkSize, inChan, outChan, errChan)
 	go func() {
 		for {
-			c.logger.Error("error while splitting output data into chunks: ", "error", <-errChan)
+			select {
+			case err := <-errChan:
+				c.logger.Error("error while splitting output data into chunks: ", "error", err)
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 	go func() {
 		for {
-			clientWs.WriteMessage(2, <-outChan)
+			select {
+			case out := <-outChan:
+				clientWs.WriteMessage(2, out)
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 	go bsc.Start()

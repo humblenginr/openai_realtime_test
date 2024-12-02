@@ -68,6 +68,8 @@ func (ab *BufferSizeController) Start() {
 	for {
 		data := <-ab.inChan
 		err := ab.processData(data)
-		ab.errChan <- err
+		if err != nil {
+			ab.errChan <- err
+		}
 	}
 }
