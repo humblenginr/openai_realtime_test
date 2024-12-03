@@ -2,48 +2,102 @@ package config
 
 import (
 	"fmt"
-	"os"
+	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Websocket WebsocketConfig `yaml:"websocket"`
-	Audio     AudioConfig     `yaml:"audio"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Websocket WebsocketConfig `mapstructure:"websocket"`
+	Audio     AudioConfig     `mapstructure:"audio"`
 }
 
 type ServerConfig struct {
-	Port           int    `yaml:"port"`
-	ReadTimeout    string `yaml:"read_timeout"`
-	WriteTimeout   string `yaml:"write_timeout"`
-	MaxMessageSize int    `yaml:"max_message_size"`
+	Port int `mapstructure:"port"`
 }
 
 type WebsocketConfig struct {
-	PingInterval    string `yaml:"ping_interval"`
-	PongWait        string `yaml:"pong_wait"`
-	WriteWait       string `yaml:"write_wait"`
-	MaxMessageQueue int    `yaml:"max_message_queue"`
+	PingInterval    string `mapstructure:"ping_interval"`
+	PongWait        string `mapstructure:"pong_wait"`
+	WriteWait       string `mapstructure:"write_wait"`
+	MaxMessageQueue int    `mapstructure:"max_message_queue"`
 }
 
+type AudioFormat string
+
+const (
+	PCM16 AudioFormat = "pcm_16"
+	WAV   AudioFormat = "wav"
+	MP3   AudioFormat = "mp3"
+)
+
+// this is the configuration of the audio the hardware will be sending
+// this is also the configuration of the audio the harware expects to receive
 type AudioConfig struct {
-	SampleRate int `yaml:"sample_rate"`
-	Channels   int `yaml:"channels"`
-	BitDepth   int `yaml:"bit_depth"`
+	SampleRate  int         `mapstructure:"sample_rate"`
+	Channels    int         `mapstructure:"channels"`
+	AudioFormat AudioFormat `mapstructure:"format"`
 }
 
-// LoadConfig reads configuration from a YAML file
-func LoadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("error reading config file: %w", err)
+// LoadConfig loads configuration from file and environment variables
+func LoadConfig() (*Config, error) {
+	v := viper.New()
+
+	// Set default values
+	v.SetDefault("server.port", 8080)
+	v.SetDefault("websocket.ping_interval", "30s")
+	v.SetDefault("websocket.pong_wait", "60s")
+	v.SetDefault("websocket.write_wait", "10s")
+	v.SetDefault("websocket.max_message_queue", 256)
+	v.SetDefault("audio.sample_rate", 16000)
+	v.SetDefault("audio.channels", 2)
+	v.SetDefault("audio.format", "pcm_16")
+
+	// Config file support
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
+	v.AddConfigPath(".")
+	v.AddConfigPath("./config")
+	v.AddConfigPath("/etc/pixa/")
+
+	// Environment variables support
+	v.SetEnvPrefix("PIXA")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	// Read config file
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("error reading config file: %w", err)
+		}
 	}
 
 	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("error parsing config file: %w", err)
+	if err := v.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("error unmarshaling config: %w", err)
 	}
 
 	return &config, nil
+}
+
+// ValidateConfig validates the configuration values
+func ValidateConfig(cfg *Config) error {
+	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
+		return fmt.Errorf("invalid port number: %d", cfg.Server.Port)
+	}
+
+	if cfg.Audio.SampleRate <= 0 {
+		return fmt.Errorf("invalid sample rate: %d", cfg.Audio.SampleRate)
+	}
+
+	if cfg.Audio.Channels <= 0 {
+		return fmt.Errorf("invalid number of channels: %d", cfg.Audio.Channels)
+	}
+
+	if cfg.Audio.AudioFormat != PCM16 && cfg.Audio.AudioFormat != WAV && cfg.Audio.AudioFormat != MP3 {
+		return fmt.Errorf("invalid audio format: %s", cfg.Audio.AudioFormat)
+	}
+
+	return nil
 }

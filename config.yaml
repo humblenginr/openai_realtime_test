@@ -11,6 +11,6 @@ websocket:
   max_message_queue: 256
 
 audio:
-  sample_rate: 44100
+  sample_rate: 16000
   channels: 2
-  bit_depth: 16
+  audio_format: "pcm_16"

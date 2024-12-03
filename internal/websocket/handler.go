@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/pixaverse-studios/websocket-server/internal/ai"
+	"github.com/pixaverse-studios/websocket-server/internal/config"
 	"github.com/pixaverse-studios/websocket-server/internal/utils"
 	"github.com/pixaverse-studios/websocket-server/pkg/audio"
 
@@ -19,17 +21,23 @@ import (
 type Handler struct {
 	upgrader websocket.Upgrader
 	logger   *slog.Logger
+	config   *config.Config
 }
 
 // NewHandler creates a new WebSocket handler with the provided options
-func NewHandler() *Handler {
+func NewHandler(cfg *config.Config) *Handler {
+	pingInterval, _ := time.ParseDuration(cfg.Websocket.PingInterval)
+
 	h := &Handler{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				return true
+				return true // In production, implement proper origin checking
 			},
+			HandshakeTimeout: pingInterval,
+			WriteBufferPool:  nil, // Use default pool
 		},
 		logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
+		config: cfg,
 	}
 
 	return h
@@ -46,10 +54,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &Client{
-		conn:   conn,
-		logger: h.logger,
-	}
+	client := NewClient(conn, h.logger, h.config)
 	defer client.Close()
 
 	if err := h.handleClient(ctx, client); err != nil {
@@ -69,12 +74,9 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 			case <-ctx.Done():
 				return
 			case audio := <-ab.GetOutputChannel():
-				client.conn.WriteMessage(2, audio)
-
+				client.conn.WriteMessage(websocket.BinaryMessage, audio)
 			}
-
 		}
-
 	}()
 
 	// Listen for critical events from the AI model
@@ -88,7 +90,6 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 					ab.Flush()
 				}
 			}
-
 		}
 	}()
 
@@ -99,8 +100,8 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 			case <-ctx.Done():
 				return
 			case a := <-aiClient.GetResponseStream():
-				if a.GetSampleRate() != 16000 {
-					a.Resample(16000)
+				if a.GetSampleRate() != h.config.Audio.SampleRate {
+					a.Resample(h.config.Audio.SampleRate)
 				}
 				err := ab.Write(a.AsPCM16())
 				if err != nil {
@@ -137,6 +138,13 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 
 // readPump handles incoming messages from the WebSocket client
 func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AIClient) error {
+	pongWait, _ := time.ParseDuration(h.config.Websocket.PongWait)
+	client.conn.SetReadDeadline(time.Now().Add(pongWait))
+	client.conn.SetPongHandler(func(string) error {
+		client.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -150,8 +158,8 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AI
 				return err
 			}
 
-			if typ == 2 {
-				a := audio.FromPCM16(message, 16000, 2)
+			if typ == websocket.BinaryMessage {
+				a := audio.FromPCM16(message, h.config.Audio.SampleRate, h.config.Audio.Channels)
 				err := chatClient.SendAudio(a)
 				if err != nil {
 					h.logger.Error("Could not send audio to AI Client", "error", err)
