@@ -1,3 +1,4 @@
 ._*
 .git
 ENV
+config.yaml
