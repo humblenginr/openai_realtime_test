@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -11,6 +12,7 @@ type Config struct {
 	Server    ServerConfig    `mapstructure:"server"`
 	Websocket WebsocketConfig `mapstructure:"websocket"`
 	Audio     AudioConfig     `mapstructure:"audio"`
+	Azure     AzureConfig     `mapstructure:"azure"`
 }
 
 type ServerConfig struct {
@@ -40,6 +42,11 @@ type AudioConfig struct {
 	AudioFormat AudioFormat `mapstructure:"format"`
 }
 
+type AzureConfig struct {
+	OpenAIKey  string `mapstructure:"openai_key"`
+	ServiceURL string `mapstructure:"service_url"`
+}
+
 // LoadConfig loads configuration from file and environment variables
 func LoadConfig() (*Config, error) {
 	v := viper.New()
@@ -66,6 +73,14 @@ func LoadConfig() (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
+	// Check for Azure OpenAI environment variables
+	if azureKey := os.Getenv("AZURE_OPENAI_KEY"); azureKey != "" {
+		v.Set("azure.openai_key", azureKey)
+	}
+	if azureURL := os.Getenv("AZURE_OPENAI_URL"); azureURL != "" {
+		v.Set("azure.service_url", azureURL)
+	}
+
 	// Read config file
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -76,6 +91,14 @@ func LoadConfig() (*Config, error) {
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("error unmarshaling config: %w", err)
+	}
+
+	// Validate required configurations
+	if config.Azure.OpenAIKey == "" {
+		return nil, fmt.Errorf("AZURE_OPENAI_KEY environment variable is required")
+	}
+	if config.Azure.ServiceURL == "" {
+		return nil, fmt.Errorf("AZURE_OPENAI_URL environment variable or azure.service_url config is required")
 	}
 
 	return &config, nil

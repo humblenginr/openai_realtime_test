@@ -64,7 +64,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // handleClient manages the client connection and message routing
 func (h *Handler) handleClient(ctx context.Context, client *Client) error {
-	aiClient := ai.NewOpenAIClient(ai.AzureURL)
+	aiClient := ai.NewOpenAIClient(client.config.Azure)
 	ab := utils.NewBufferSizeController(4096)
 
 	// Listen to the buffer controller output channel

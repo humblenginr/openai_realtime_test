@@ -22,11 +22,16 @@ spec:
         - containerPort: 80
           name: websocket
         env:
-        - name: AZURE_API_KEY
+        - name: AZURE_OPENAI_KEY
           valueFrom:
             secretKeyRef:
               name: pixa-secrets
-              key: azure-api-key
+              key: azure-openai-key
+        - name: AZURE_OPENAI_URL
+          valueFrom:
+            secretKeyRef:
+              name: pixa-secrets
+              key: azure-openai-url
         resources:
           requests:
             memory: "512Mi"

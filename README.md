@@ -6,37 +6,47 @@ A production-grade WebSocket server that facilitates real-time communication bet
 
 The server is built with the following key components:
 
-- **WebSocket Handler**: Manages client connections and message routing
+- **WebSocket Handler**: Manages client connections and message routing with robust connection health monitoring
 - **Audio Processing**: Handles audio data transformation and relay
 - **AI Integration**: Processes and augments client communication with AI capabilities
 
 ## Requirements
 
-- Go 1.23.2 or later
+- Go 1.23 or later
 - Docker 24.0.0 or later (for containerized deployment)
 - Minimum 1GB RAM, recommended 2GB for production use
-- Network access for WebSocket connections (port 80)
-
-## Environment Variables
-
-| Variable | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `AZURE_API_KEY` | Yes | Azure API key for audio processing | `azure_key_xxx` |
-| `LOG_LEVEL` | No | Logging level (debug, info, warn, error) | `info` |
-| `MAX_CONNECTIONS` | No | Maximum concurrent client connections | `1000` |
-| `PING_INTERVAL` | No | WebSocket ping interval in seconds | `30` |
-| `AI_MODEL_VERSION` | No | Version of AI model to use | `v1.0` |
+- Azure OpenAI API access
 
 ## Configuration
 
-The server can be configured using a `config.yaml` file in the root directory:
+The server supports multiple configuration methods in the following order of precedence:
+1. Command-line flags
+2. Environment variables
+3. Configuration file
+4. Default values
 
+### Environment Variables
+
+All configuration options can be set via environment variables with the prefix `PIXA_`. For example:
+- `PIXA_SERVER_PORT=8080`
+- `PIXA_WEBSOCKET_PING_INTERVAL=30s`
+- `PIXA_AUDIO_SAMPLE_RATE=16000`
+
+Required Azure OpenAI environment variables:
+- `AZURE_OPENAI_KEY`: Your Azure OpenAI API key
+- `AZURE_OPENAI_URL`: Your Azure OpenAI service WebSocket URL
+
+### Configuration File
+
+The server looks for `config.yaml` in the following locations:
+- Current directory
+- `./config/` directory
+- `/etc/pixa/` directory
+
+Example `config.yaml`:
 ```yaml
 server:
-  port: 80
-  read_timeout: 60s
-  write_timeout: 60s
-  max_message_size: 1024
+  port: 8080
 
 websocket:
   ping_interval: 30s
@@ -45,17 +55,21 @@ websocket:
   max_message_queue: 256
 
 audio:
-  sample_rate: 44100
+  sample_rate: 16000
   channels: 2
-  bit_depth: 16
+  format: "pcm_16"  # Supported formats: pcm_16, wav, mp3
+
+azure:
+  service_url: "your-azure-openai-websocket-url"  # Can also be set via AZURE_OPENAI_URL
+  # Note: API key should be set via environment variable AZURE_OPENAI_KEY
 ```
 
 ## Development Setup
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/humblenginr/pixa-audio-relay-server.git
-   cd pixa-audio-relay-server
+   git clone https://github.com/pixaverse-studios/websocket-server.git
+   cd websocket-server
    ```
 
 2. Install dependencies:
@@ -63,10 +77,10 @@ audio:
    go mod download
    ```
 
-3. Set up environment variables:
+3. Create a configuration file:
    ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
+   cp config.yaml.example config.yaml
+   # Edit config.yaml with your settings
    ```
 
 4. Run tests:
@@ -92,8 +106,8 @@ audio:
    ```bash
    docker run -d \
      --name pixa-server \
-     -p 80:80 \
-     -e AZURE_API_KEY=your_key_here \
+     -p 8080:8080 \
+     -v /path/to/config.yaml:/etc/pixa/config.yaml \
      pixa-websocket-server:latest
    ```
 
@@ -107,7 +121,7 @@ kubectl apply -f deploy/k8s/
 
 ## Client Protocol
 
-Clients connect via WebSocket to `ws://server:80/`. The protocol supports sending binary message of audio data in 16-Bit PCM format for now. 
+Clients connect via WebSocket to `ws://server:8080/`. The protocol supports sending binary message of audio data in 16-Bit PCM format for now. 
 
 ## Project Structure
 
@@ -117,6 +131,7 @@ Clients connect via WebSocket to `ws://server:80/`. The protocol supports sendin
 │   └── server/        # Server implementation
 ├── internal/          # Private application code
 │   ├── ai/           # AI processing logic
+│   ├── config/       # Configuration management
 │   ├── utils/        # Internal utilities
 │   └── websocket/    # WebSocket handling
 ├── pkg/

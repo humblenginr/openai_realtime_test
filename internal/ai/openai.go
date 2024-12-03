@@ -8,17 +8,16 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"github.com/pixaverse-studios/websocket-server/pkg/audio"
 	"sync"
 	"time"
+
+	"github.com/pixaverse-studios/websocket-server/internal/config"
+	"github.com/pixaverse-studios/websocket-server/pkg/audio"
 
 	"github.com/gorilla/websocket"
 )
 
 const (
-	// URLs for different environments
-	AzureURL = "wss://pixa-realtime.openai.azure.com/openai/realtime?api-version=2024-10-01-preview&deployment=gpt-4o-realtime-preview"
-
 	// WebSocket configuration
 	writeWait = 10 * time.Second
 )
@@ -26,7 +25,6 @@ const (
 // ChatGPTClient manages the WebSocket connection to the ChatGPT server
 type OpenAIClient struct {
 	conn    *websocket.Conn
-	url     string
 	logger  *slog.Logger
 	headers http.Header
 
@@ -37,26 +35,23 @@ type OpenAIClient struct {
 	responseStream chan audio.Audio
 	// eventsStream lets the client know when some important events happen in the model, like when the model has detected the start of speech, end of speech, completed the response etc. The client can use these to events to curate the behaviour of the system.
 	eventsStream chan EventType
+	config       config.AzureConfig
 }
 
-func NewOpenAIClient(url string) *OpenAIClient {
+func NewOpenAIClient(azureConfig config.AzureConfig) *OpenAIClient {
 	return &OpenAIClient{
-		url:            url,
 		logger:         slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 		done:           make(chan struct{}),
 		headers:        http.Header{},
 		responseStream: make(chan audio.Audio),
 		eventsStream:   make(chan EventType),
+		config:         azureConfig,
 	}
 }
 
 // ctx is used to cancel
 func (c *OpenAIClient) Initialize(ctx context.Context) error {
-	apiKey := os.Getenv("AZURE_API_KEY")
-	if apiKey == "" {
-		return fmt.Errorf("AZURE_API_KEY environment variable is not set")
-	}
-	c.headers.Set("api-key", apiKey)
+	c.headers.Set("api-key", c.config.OpenAIKey)
 	err := c.connect()
 	if err != nil {
 		return fmt.Errorf("Could not connect to OpenAI server: %v", err)
@@ -74,7 +69,7 @@ func (c *OpenAIClient) connect() error {
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
-	conn, resp, err := dialer.Dial(c.url, c.headers)
+	conn, resp, err := dialer.Dial(c.config.ServiceURL, c.headers)
 	if err != nil {
 		if resp != nil {
 			return fmt.Errorf("websocket connection failed with status %d: %v", resp.StatusCode, err)
@@ -83,7 +78,7 @@ func (c *OpenAIClient) connect() error {
 	}
 
 	c.conn = conn
-	c.logger.Info("Connected to server", "url", c.url)
+	c.logger.Info("Connected to server", "url", c.config.ServiceURL)
 	return nil
 }
 
