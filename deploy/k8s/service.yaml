@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pixa-websocket
+  labels:
+    app: pixa-websocket
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: websocket
+    protocol: TCP
+    name: http
+  selector:
+    app: pixa-websocket

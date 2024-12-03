@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pixa-websocket
+  labels:
+    app: pixa-websocket
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pixa-websocket
+  template:
+    metadata:
+      labels:
+        app: pixa-websocket
+    spec:
+      containers:
+      - name: pixa-websocket
+        image: pixa-websocket-server:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: websocket
+        env:
+        - name: AZURE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pixa-secrets
+              key: azure-api-key
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10

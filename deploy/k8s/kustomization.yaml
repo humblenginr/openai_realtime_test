@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - secrets.yaml
+  - hpa.yaml
+
+commonLabels:
+  app: pixa-websocket
+  environment: production

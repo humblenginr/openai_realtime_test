@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"pixa-demo/audio"
+	"pixa-demo/pkg/audio"
 	"sync"
 	"time"
 

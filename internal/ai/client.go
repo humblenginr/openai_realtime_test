@@ -2,7 +2,7 @@ package ai
 
 import (
 	"context"
-	"pixa-demo/audio"
+	"pixa-demo/pkg/audio"
 )
 
 // This package provides an interface to interact with the Speech-to-Speech LLM.
