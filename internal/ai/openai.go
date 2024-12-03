@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"pixa-demo/pkg/audio"
+	"github.com/pixaverse-studios/websocket-server/pkg/audio"
 	"sync"
 	"time"
 

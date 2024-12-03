@@ -1,0 +1,16 @@
+server:
+  port: 80
+  read_timeout: 60s
+  write_timeout: 60s
+  max_message_size: 1024
+
+websocket:
+  ping_interval: 30s
+  pong_wait: 60s
+  write_wait: 10s
+  max_message_queue: 256
+
+audio:
+  sample_rate: 44100
+  channels: 2
+  bit_depth: 16

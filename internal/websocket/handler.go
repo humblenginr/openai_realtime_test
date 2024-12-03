@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"os"
 
-	"pixa-demo/internal/ai"
-	"pixa-demo/pkg/audio"
-	"pixa-demo/internal/utils"
+	"github.com/pixaverse-studios/websocket-server/internal/ai"
+	"github.com/pixaverse-studios/websocket-server/internal/utils"
+	"github.com/pixaverse-studios/websocket-server/pkg/audio"
 
 	"github.com/gorilla/websocket"
 )
