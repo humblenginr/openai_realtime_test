@@ -126,17 +126,13 @@ Clients connect via WebSocket to `ws://server:80/`. The protocol supports sendin
     └── k8s/          # Kubernetes manifests
 ```
 
-## Contributing
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
-
 ## Security
 
-For security concerns, please email security@pixa.com instead of using the issue tracker.
+For security concerns, please email tech@pixa.com instead of using the issue tracker.
 
 ## License
 
-This project is proprietary software owned by Pixa Inc. All rights reserved.
+This project is proprietary software owned by Pixaverse Studios. All rights reserved.
 
 ## Support
 
