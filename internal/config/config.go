@@ -13,6 +13,11 @@ type Config struct {
 	Websocket WebsocketConfig `mapstructure:"websocket"`
 	Audio     AudioConfig     `mapstructure:"audio"`
 	Azure     AzureConfig     `mapstructure:"azure"`
+	AIConfig  AIConfig        `mapstructure:"ai"`
+}
+
+type AIConfig struct {
+	SystemPromptFilePath string `mapstructure:"system_prompt_filepath"`
 }
 
 type ServerConfig struct {

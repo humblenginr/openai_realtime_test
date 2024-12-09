@@ -36,9 +36,10 @@ type OpenAIClient struct {
 	// eventsStream lets the client know when some important events happen in the model, like when the model has detected the start of speech, end of speech, completed the response etc. The client can use these to events to curate the behaviour of the system.
 	eventsStream chan EventType
 	config       config.AzureConfig
+	aiconfig     config.AIConfig
 }
 
-func NewOpenAIClient(azureConfig config.AzureConfig) *OpenAIClient {
+func NewOpenAIClient(azureConfig config.AzureConfig, aiConfig config.AIConfig) *OpenAIClient {
 	return &OpenAIClient{
 		logger:         slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 		done:           make(chan struct{}),
@@ -46,6 +47,7 @@ func NewOpenAIClient(azureConfig config.AzureConfig) *OpenAIClient {
 		responseStream: make(chan audio.Audio),
 		eventsStream:   make(chan EventType),
 		config:         azureConfig,
+		aiconfig:       aiConfig,
 	}
 }
 
@@ -82,12 +84,24 @@ func (c *OpenAIClient) connect() error {
 	return nil
 }
 
+func (c *OpenAIClient) loadSystemPrompt() string {
+	if c.aiconfig.SystemPromptFilePath != "" {
+		byt, err := os.ReadFile(c.aiconfig.SystemPromptFilePath)
+		if err != nil {
+			return ""
+		}
+		return string(byt)
+	}
+	return ""
+}
+
 func (c *OpenAIClient) initializeSession() error {
 	sessionEvent := map[string]interface{}{
 		"type": "session.update",
 		"session": map[string]interface{}{
 			"modalities":         []string{"audio", "text"},
 			"input_audio_format": "pcm16",
+			"instructions":       c.loadSystemPrompt(),
 			// turn should be detected automatically
 			"turn_detection": map[string]interface{}{
 				"type":                "server_vad",
@@ -97,6 +111,7 @@ func (c *OpenAIClient) initializeSession() error {
 			},
 		},
 	}
+	fmt.Println("Initializing session...")
 	return c.writeJSON(sessionEvent)
 }
 
@@ -196,8 +211,6 @@ func (c *OpenAIClient) SendAudio(a audio.Audio) error {
 	// OpenAI requires 16 bit pcm, 1 channel audio, 24khz samplerate
 	if a.GetChannels() != 1 && a.GetChannels() == 2 {
 		a.StereoToMono()
-	} else {
-		return fmt.Errorf("OpenAI does not support %d channel audio input", a.GetChannels())
 	}
 
 	if a.GetSampleRate() != 24000 {

@@ -57,6 +57,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	client := NewClient(conn, h.logger, h.config)
 	defer client.Close()
 
+	// Start sending pings to the client
+	client.StartPingTicker(ctx)
+
 	if err := h.handleClient(ctx, client); err != nil {
 		h.logger.Error("Client handling error", "error", err)
 	}
@@ -64,7 +67,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // handleClient manages the client connection and message routing
 func (h *Handler) handleClient(ctx context.Context, client *Client) error {
-	aiClient := ai.NewOpenAIClient(client.config.Azure)
+	aiClient := ai.NewOpenAIClient(client.config.Azure, h.config.AIConfig)
 	ab := utils.NewBufferSizeController(4096)
 
 	// Listen to the buffer controller output channel
@@ -138,13 +141,6 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 
 // readPump handles incoming messages from the WebSocket client
 func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AIClient) error {
-	pongWait, _ := time.ParseDuration(h.config.Websocket.PongWait)
-	client.conn.SetReadDeadline(time.Now().Add(pongWait))
-	client.conn.SetPongHandler(func(string) error {
-		client.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
-
 	for {
 		select {
 		case <-ctx.Done():

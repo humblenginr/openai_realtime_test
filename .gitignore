@@ -2,3 +2,5 @@
 .git
 ENV
 config.yaml
+myenv/
+
