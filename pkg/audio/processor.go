@@ -1,7 +1,5 @@
 package audio
 
-import ()
-
 type AudioFormat int
 
 const (
@@ -35,11 +33,13 @@ func (a *Audio) AsPCM16() []byte {
 }
 
 func (a *Audio) AsMP3() ([]byte, error) {
-	mp3Data, err := float32ToMP3(a.float32Data, a.sampleRate, a.channels)
-	if err != nil {
-		return nil, err
-	}
-	return mp3Data, nil
+	// Commenting this out because this requires the go-lame library which requires some complicated steps for installing the C dependencies.
+	// mp3Data, err := float32ToMP3(a.float32Data, a.sampleRate, a.channels)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return mp3Data, nil
+	return nil, nil
 }
 
 func FromPCM16(data []byte, sampleRate int, channels int) Audio {

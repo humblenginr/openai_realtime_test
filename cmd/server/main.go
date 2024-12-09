@@ -39,7 +39,14 @@ func main() {
 
 	go func() {
 		log.Printf("Starting server on port %d", cfg.Server.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		var err error
+		if cfg.Server.EnableTLS {
+			log.Printf("TLS enabled, using certificate: %s", cfg.Server.CertFile)
+			err = server.ListenAndServeTLS(cfg.Server.CertFile, cfg.Server.KeyFile)
+		} else {
+			err = server.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()

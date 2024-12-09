@@ -1,13 +1,14 @@
 package audio
 
 import (
-	"bytes"
+	//"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/viert/go-lame"
+	//"github.com/viert/go-lame"
 )
 
-func float32ToMP3(data []float32, sampleRate, channels int) ([]byte, error) {
+// Commenting this out because this requires the go-lame library which requires some complicated steps for installing the C dependencies.
+/*func float32ToMP3(data []float32, sampleRate, channels int) ([]byte, error) {
 	pcmData := Float32ToPcm16(data)
 	buf := new(bytes.Buffer)
 	encoder := lame.NewEncoder(buf)
@@ -38,7 +39,7 @@ func float32ToMP3(data []float32, sampleRate, channels int) ([]byte, error) {
 
 	encoder.Close()
 	return buf.Bytes(), nil
-}
+}*/
 
 func ResampleAudio(inputData []float32, inputSampleRate, targetSampleRate float64) []float32 {
 	ratio := targetSampleRate / inputSampleRate

@@ -21,7 +21,10 @@ type AIConfig struct {
 }
 
 type ServerConfig struct {
-	Port int `mapstructure:"port"`
+	Port            int    `mapstructure:"port"`
+	CertFile        string `mapstructure:"cert_file"`
+	KeyFile         string `mapstructure:"key_file"`
+	EnableTLS       bool   `mapstructure:"enable_tls"`
 }
 
 type WebsocketConfig struct {
@@ -58,6 +61,9 @@ func LoadConfig() (*Config, error) {
 
 	// Set default values
 	v.SetDefault("server.port", 8080)
+	v.SetDefault("server.enable_tls", false)
+	v.SetDefault("server.cert_file", "")
+	v.SetDefault("server.key_file", "")
 	v.SetDefault("websocket.ping_interval", "30s")
 	v.SetDefault("websocket.pong_wait", "60s")
 	v.SetDefault("websocket.write_wait", "10s")
@@ -113,6 +119,15 @@ func LoadConfig() (*Config, error) {
 func ValidateConfig(cfg *Config) error {
 	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("invalid port number: %d", cfg.Server.Port)
+	}
+
+	if cfg.Server.EnableTLS {
+		if cfg.Server.CertFile == "" {
+			return fmt.Errorf("TLS enabled but cert_file is not specified")
+		}
+		if cfg.Server.KeyFile == "" {
+			return fmt.Errorf("TLS enabled but key_file is not specified")
+		}
 	}
 
 	if cfg.Audio.SampleRate <= 0 {
