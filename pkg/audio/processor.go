@@ -25,6 +25,10 @@ func (a *Audio) GetSampleRate() int {
 	return a.sampleRate
 }
 
+func (a *Audio) AsInt16() []int16 {
+	return Float32ToInt16(a.float32Data)
+}
+
 func (a *Audio) AsFloat32() []float32 {
 	return a.float32Data
 }

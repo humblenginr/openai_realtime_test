@@ -162,7 +162,7 @@ func (c *OpenAIClient) processEvent(eventType EventType, msg []byte) error {
 		if err := json.Unmarshal(msg, &resp); err != nil {
 			return fmt.Errorf("failed to parse delta event: %v", err)
 		}
-		c.logger.Info("Unhandled event", "event json", resp)
+		// c.logger.Info("Unhandled event", "event json", resp)
 		return nil
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/pixaverse-studios/websocket-server/internal/ai"
 	"github.com/pixaverse-studios/websocket-server/internal/config"
 	"github.com/pixaverse-studios/websocket-server/internal/utils"
+	wake "github.com/pixaverse-studios/websocket-server/internal/wake_word"
 	"github.com/pixaverse-studios/websocket-server/pkg/audio"
 
 	"github.com/gorilla/websocket"
@@ -139,8 +140,29 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 	}
 }
 
-// readPump handles incoming messages from the WebSocket client
 func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AIClient) error {
+	wakeDInput := make(chan []int16)
+	h.logger.Info("Initializing wake word detector...")
+
+	wakeWordChan, err := wake.Porc(ctx, "C4vNYiebO1DEHYDsQKL3/V8uLqMw16GV4rg+1EGP0oMbdN58DLL6+Q==", wakeDInput)
+	if err != nil {
+		h.logger.Error("Could not initialize porc", "error", err)
+		return err
+	}
+	h.logger.Info("Wake word detector initialized successfully")
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				h.logger.Info("Wake word detection goroutine stopping...")
+				return
+			case detected := <-wakeWordChan:
+				h.logger.Info("Wake word detected!", "timestamp", time.Now(), "detected", detected)
+			}
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -156,11 +178,15 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AI
 
 			if typ == websocket.BinaryMessage {
 				a := audio.FromPCM16(message, h.config.Audio.SampleRate, h.config.Audio.Channels)
-				err := chatClient.SendAudio(a)
-				if err != nil {
-					h.logger.Error("Could not send audio to AI Client", "error", err)
+				if a.GetChannels() == 2 {
+					a.StereoToMono()
+				}
+				if a.GetSampleRate() != 16000 {
+					a.Resample(16000)
 				}
 
+				samples := a.AsInt16()
+				wakeDInput <- samples
 			}
 		}
 	}
