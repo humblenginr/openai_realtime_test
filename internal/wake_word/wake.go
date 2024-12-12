@@ -1,8 +1,10 @@
 package wake
 
 import (
+	"container/ring"
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
 	"time"
 
@@ -55,19 +57,32 @@ func (a *AudioPipeline) Start(ctx context.Context, inputCh chan audio.Audio) (ch
 		return nil, fmt.Errorf("failed to initialize Porcupine: %v", err)
 	}
 
-	fmt.Printf("Porcupine initialized. Required frame length: %d. Required Sample Rate: %d\n",
-		porcupine.FrameLength, porcupine.SampleRate)
-
 	go func() {
 		defer p.Delete()
-		defer close(outputChan)
 		lastNonSilentTime := time.Now()
 
+		/*
+			We need this ring, since the AI client requires continuity in frames to understand the context
+			In the below figure, if porcupine detects the wake word in [t0], then we would just be sending t0, t1, and t2. In my testing, I have seen
+			the AI struggles to identify the right context. Therefore, we buffer 10 frames and send them to give context to the AI client.
+
+
+			Time:     t-5   t-4   t-3   t-2   t-1   t0    t1    t2
+			Speech:   ...   ...   "He   y     Ko    n     how   are"
+			Buffer:   [t-5] [t-4] [t-3] [t-2] [t-1]
+			Detection:                               ^
+			Sent:     [t-5] [t-4] [t-3] [t-2] [t-1] [t0]  [t1]  [t2]
+		*/
+		residualRing := ring.New(10)
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case frame := <-inputCh:
+				if frame.FrameLength() != porcupine.FrameLength {
+					log.Fatalf("Invalid frame length, actual: %d, expected: %d", frame.FrameLength(), 512)
+				}
+
 				// Always process for wake word detection
 				keywordIndex, err := p.Process(frame.AsInt16())
 				if err != nil {
@@ -78,9 +93,18 @@ func (a *AudioPipeline) Start(ctx context.Context, inputCh chan audio.Audio) (ch
 				// Check for wake word
 				if keywordIndex >= 0 {
 					fmt.Printf("Wake word detected!\n")
+					if a.wakeWordDetected == false {
+						residualRing.Do(func(frame any) {
+							outputChan <- frame.(audio.Audio)
+						})
+					}
 					a.wakeWordDetected = true
 					lastNonSilentTime = time.Now()
 				}
+
+				// Update the ring
+				residualRing.Value = frame
+				residualRing = residualRing.Next()
 
 				// If wake word is detected, start forwarding frames
 				if a.wakeWordDetected {
@@ -91,7 +115,6 @@ func (a *AudioPipeline) Start(ctx context.Context, inputCh chan audio.Audio) (ch
 					}
 					if frame.IsSilentWithThreshold(silenceThreshold) {
 						if time.Since(lastNonSilentTime) > 30*time.Second {
-							fmt.Println("30 seconds of silence detected, resetting wake word detection")
 							a.wakeWordDetected = false
 							continue
 						}

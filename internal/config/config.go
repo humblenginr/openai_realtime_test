@@ -54,8 +54,7 @@ const (
 	MP3   AudioFormat = "mp3"
 )
 
-// this is the configuration of the audio the hardware will be sending
-// this is also the configuration of the audio the harware expects to receive
+// audio requirements for the server
 type AudioConfig struct {
 	SampleRate  int         `mapstructure:"sample_rate"`
 	Channels    int         `mapstructure:"channels"`

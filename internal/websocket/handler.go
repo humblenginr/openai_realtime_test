@@ -71,6 +71,8 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 	aiClient := ai.NewOpenAIClient(client.config.Azure, h.config.AIConfig)
 	ab := utils.NewBufferSizeController(4096)
 
+	// TODO: Refactor this in pipeline pattern
+
 	// Listen to the buffer controller output channel
 	go func() {
 		for {
@@ -143,7 +145,6 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AIClient) error {
 	apInputCh := make(chan audio.Audio, 4)
 
-	// Create AudioPipeline with configuration
 	ap := wake.NewAudioPipeline(&h.config.WakeWordConfig)
 	apOutputCh, err := ap.Start(ctx, apInputCh)
 	if err != nil {
@@ -181,6 +182,7 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AI
 
 			if typ == websocket.BinaryMessage {
 				a := audio.FromPCM16(message, h.config.Audio.SampleRate, h.config.Audio.Channels)
+
 				if a.GetChannels() == 2 {
 					a.StereoToMono()
 				}
@@ -188,13 +190,6 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AI
 					a.Resample(16000)
 				}
 
-				// a should be of fixed frame length 512
-				if a.FrameLength() != 512 {
-					h.logger.Error("Invalid frame length",
-						"actual", a.FrameLength(),
-						"expected", 512)
-					continue
-				}
 				apInputCh <- a
 			}
 		}
