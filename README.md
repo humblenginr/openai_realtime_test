@@ -25,6 +25,26 @@ The server supports multiple configuration methods in the following order of pre
 3. Configuration file
 4. Default values
 
+## Build Requirements
+
+### CGO Requirements
+This application uses Porcupine wake word detection, which requires CGO. When building, ensure CGO is enabled:
+
+```bash
+# For local builds
+CGO_ENABLED=1 go build
+
+# For cross-compilation
+CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build
+```
+
+> **Note**: CGO must be enabled (`CGO_ENABLED=1`) because the Porcupine wake word detection system uses native C bindings. Make sure you have a C compiler (like gcc) installed on your system.
+
+### Dependencies
+- Go 1.21 or higher
+- GCC or another C compiler
+- Porcupine wake word detection library
+
 ### Environment Variables
 
 All configuration options can be set via environment variables with the prefix `PIXA_`. For example:
