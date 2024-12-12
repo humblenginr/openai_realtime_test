@@ -12,6 +12,7 @@ type Audio struct {
 	float32Data []float32
 	sampleRate  int
 	channels    int
+	bitDepth    int
 }
 
 //func FromMP3(){}
@@ -23,6 +24,18 @@ func (a *Audio) GetChannels() int {
 
 func (a *Audio) GetSampleRate() int {
 	return a.sampleRate
+}
+
+// Number of samples in the frame
+func (a *Audio) FrameLength() int {
+	if a.bitDepth == 16 {
+		return len(a.AsInt16())
+	}
+	return 0
+}
+
+func (a *Audio) AsBytes() []byte {
+	return Int16ToPCM(Float32ToInt16(a.float32Data))
 }
 
 func (a *Audio) AsInt16() []int16 {
@@ -51,6 +64,7 @@ func FromPCM16(data []byte, sampleRate int, channels int) Audio {
 		float32Data: Pcm16toFloat32(data),
 		sampleRate:  sampleRate,
 		channels:    channels,
+		bitDepth:    16,
 	}
 }
 
@@ -75,4 +89,14 @@ func (a *Audio) StereoToMono() {
 
 	a.float32Data = Int16ToFloat32(monoSlice)
 	a.channels = 1
+}
+
+// IsSilent checks if the audio is silent using the default threshold
+func (a *Audio) IsSilent() bool {
+	return IsSilent(a.float32Data, DefaultSilenceThreshold)
+}
+
+// IsSilentWithThreshold checks if the audio is silent using a custom threshold
+func (a *Audio) IsSilentWithThreshold(threshold float32) bool {
+	return IsSilent(a.float32Data, threshold)
 }

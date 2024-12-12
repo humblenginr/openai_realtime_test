@@ -9,11 +9,23 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig    `mapstructure:"server"`
-	Websocket WebsocketConfig `mapstructure:"websocket"`
-	Audio     AudioConfig     `mapstructure:"audio"`
-	Azure     AzureConfig     `mapstructure:"azure"`
-	AIConfig  AIConfig        `mapstructure:"ai"`
+	Server         ServerConfig    `mapstructure:"server"`
+	Websocket      WebsocketConfig `mapstructure:"websocket"`
+	Audio          AudioConfig     `mapstructure:"audio"`
+	Azure          AzureConfig     `mapstructure:"azure"`
+	AIConfig       AIConfig        `mapstructure:"ai"`
+	WakeWordConfig WakeWordConfig  `mapstructure:"wake_word"`
+}
+
+type WakeWordConfig struct {
+	PorcupineConfig  PorcupineConfig `mapstructure:"porcupine"`
+	SilenceThreshold float32         `mapstructure:"silence_threshold"`
+}
+
+type PorcupineConfig struct {
+	APIKey           string  `mapstructure:"api_key"`
+	KeywordModelPath string  `mapstructure:"keyword_model_path"`
+	Sensitivity      float32 `mapstructure:"sensitivity"`
 }
 
 type AIConfig struct {
@@ -21,10 +33,10 @@ type AIConfig struct {
 }
 
 type ServerConfig struct {
-	Port            int    `mapstructure:"port"`
-	CertFile        string `mapstructure:"cert_file"`
-	KeyFile         string `mapstructure:"key_file"`
-	EnableTLS       bool   `mapstructure:"enable_tls"`
+	Port      int    `mapstructure:"port"`
+	CertFile  string `mapstructure:"cert_file"`
+	KeyFile   string `mapstructure:"key_file"`
+	EnableTLS bool   `mapstructure:"enable_tls"`
 }
 
 type WebsocketConfig struct {
@@ -71,6 +83,8 @@ func LoadConfig() (*Config, error) {
 	v.SetDefault("audio.sample_rate", 16000)
 	v.SetDefault("audio.channels", 2)
 	v.SetDefault("audio.format", "pcm_16")
+	v.SetDefault("wake_word.porcupine.sensitivity", float32(0.7))
+	v.SetDefault("wake_word.silence_threshold", float32(0.1))
 
 	// Config file support
 	v.SetConfigName("config")
@@ -140,6 +154,14 @@ func ValidateConfig(cfg *Config) error {
 
 	if cfg.Audio.AudioFormat != PCM16 && cfg.Audio.AudioFormat != WAV && cfg.Audio.AudioFormat != MP3 {
 		return fmt.Errorf("invalid audio format: %s", cfg.Audio.AudioFormat)
+	}
+
+	if cfg.WakeWordConfig.PorcupineConfig.APIKey == "" {
+		return fmt.Errorf("Porcupine API key is required")
+	}
+
+	if cfg.WakeWordConfig.PorcupineConfig.KeywordModelPath == "" {
+		return fmt.Errorf("Keyword model path is required")
 	}
 
 	return nil

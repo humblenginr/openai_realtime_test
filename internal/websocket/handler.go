@@ -141,15 +141,15 @@ func (h *Handler) handleClient(ctx context.Context, client *Client) error {
 }
 
 func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AIClient) error {
-	wakeDInput := make(chan []int16)
-	h.logger.Info("Initializing wake word detector...")
+	apInputCh := make(chan audio.Audio, 4)
 
-	wakeWordChan, err := wake.Porc(ctx, "C4vNYiebO1DEHYDsQKL3/V8uLqMw16GV4rg+1EGP0oMbdN58DLL6+Q==", wakeDInput)
+	// Create AudioPipeline with configuration
+	ap := wake.NewAudioPipeline(&h.config.WakeWordConfig)
+	apOutputCh, err := ap.Start(ctx, apInputCh)
 	if err != nil {
-		h.logger.Error("Could not initialize porc", "error", err)
+		h.logger.Error("Could not initialize audio pipeline", "error", err)
 		return err
 	}
-	h.logger.Info("Wake word detector initialized successfully")
 
 	go func() {
 		for {
@@ -157,8 +157,11 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AI
 			case <-ctx.Done():
 				h.logger.Info("Wake word detection goroutine stopping...")
 				return
-			case detected := <-wakeWordChan:
-				h.logger.Info("Wake word detected!", "timestamp", time.Now(), "detected", detected)
+			case a := <-apOutputCh:
+				err := chatClient.SendAudio(a)
+				if err != nil {
+					h.logger.Error("Could not send audio to chat client", "error", err)
+				}
 			}
 		}
 	}()
@@ -185,8 +188,14 @@ func (h *Handler) readPump(ctx context.Context, client *Client, chatClient ai.AI
 					a.Resample(16000)
 				}
 
-				samples := a.AsInt16()
-				wakeDInput <- samples
+				// a should be of fixed frame length 512
+				if a.FrameLength() != 512 {
+					h.logger.Error("Invalid frame length",
+						"actual", a.FrameLength(),
+						"expected", 512)
+					continue
+				}
+				apInputCh <- a
 			}
 		}
 	}

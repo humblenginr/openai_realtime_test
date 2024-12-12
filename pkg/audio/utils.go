@@ -188,3 +188,24 @@ func Int16ToPCM(data []int16) []byte {
 	}
 	return resultBytes
 }
+
+// DefaultSilenceThreshold represents -50dB in linear scale
+const DefaultSilenceThreshold float32 = 0.01
+
+// IsSilent checks if the audio data is below the given amplitude threshold
+func IsSilent(data []float32, threshold float32) bool {
+	for _, sample := range data {
+		if abs(sample) > threshold {
+			return false
+		}
+	}
+	return true
+}
+
+// Helper function to get absolute value of float32
+func abs(x float32) float32 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
